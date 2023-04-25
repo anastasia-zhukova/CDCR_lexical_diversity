@@ -42,7 +42,7 @@ if __name__ == '__main__':
         subdir_path = os.path.join(par_path, subdir)
         cross_encoder = FullCrossEncoder(config, long=seman).to(device)
         cross_encoder.model = AutoModel.from_pretrained(os.path.join(subdir_path, 'bert')).to(device)
-        cross_encoder.linear.load_state_dict(torch.load(os.path.join(subdir_path, 'linear')))
+        cross_encoder.linear.load_state_dict(torch.load(os.path.join(subdir_path, 'linear.zip')))
         model = torch.nn.DataParallel(cross_encoder, device_ids=device_ids)
         model.eval()
 

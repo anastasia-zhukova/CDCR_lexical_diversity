@@ -7,7 +7,7 @@ The instructions are based on the [cross-document coreference resolution](https:
 * Run `python -m spacy download en_core_web_sm`.
 * Download the ECB+ corpus from [here](http://www.newsreader-project.eu/results/data/the-ecb-corpus/).
 * THE REPO CONTAINS THE ECB+ FOLDER ZIPPED. IT IS NECESSARY TO UNZIP IT FIRST.
-* AFTER UNZIPPING, TWO FOLERS ARE EXTRACTED: ECB+ AND _MACOSX (I SUPPOSE DEPENDING ON THE OS)
+* AFTER UNZIPPING, TWO FOLDERS ARE EXTRACTED: ECB+ AND _MACOSX (I SUPPOSE DEPENDING ON THE OS)
 THE ECB+ HAS TO MOVE UP ONE LEVEL OVERWRITTING THE FOLDER CONTAININT IT
 
 * Run the following script in order to extract the data from ECB+ dataset.

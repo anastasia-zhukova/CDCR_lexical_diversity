@@ -71,7 +71,7 @@ if __name__ == '__main__':
         for topic_num, topic in enumerate(data.topics):
             logger.info('Processing topic {}'.format(topic))
             topic_dataset = CrossEncoderDatasetTopic(data, topic)
-            topic_loader = torch.utils.data.DataLoader(topic_dataset, batch_size=64)
+            topic_loader = torch.utils.data.DataLoader(topic_dataset, batch_size=1)
 
             all_scores = []
             topic_mentions_ids = data.mentions_by_topics[topic]

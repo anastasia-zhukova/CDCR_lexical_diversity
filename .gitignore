@@ -2,3 +2,6 @@
 *.zip
 *.src
 *.tgt
+
+
+__pycache__/

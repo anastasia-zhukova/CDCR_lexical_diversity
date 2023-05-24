@@ -2,6 +2,6 @@
 *.zip
 *.src
 *.tgt
-
-
+*.pt
+.ipynb_checkpoints
 __pycache__/

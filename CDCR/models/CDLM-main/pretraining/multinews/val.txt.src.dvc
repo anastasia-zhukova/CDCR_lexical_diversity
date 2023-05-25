@@ -1,0 +1,4 @@
+outs:
+- md5: 4379879185e019125dbe1a68fb4e9155
+  size: 62845689
+  path: val.txt.src

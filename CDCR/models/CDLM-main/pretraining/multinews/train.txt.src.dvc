@@ -1,0 +1,4 @@
+outs:
+- md5: 31d6212203e4a171acb21abb306a6378
+  size: 514993531
+  path: train.txt.src

@@ -1,0 +1,4 @@
+outs:
+- md5: e23cb7fd5661ffec71f3e4bf7ee6e423
+  size: 7561601
+  path: test.txt.tgt

@@ -5,3 +5,6 @@
 *.pt
 .ipynb_checkpoints
 __pycache__/
+
+#Folder with cross-encoder runs
+/CDCR/models/CDLM-main/cross_encoder/runs/

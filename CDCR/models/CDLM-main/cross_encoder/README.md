@@ -16,7 +16,7 @@ THE ECB+ HAS TO MOVE UP ONE LEVEL OVERWRITTING THE FOLDER CONTAININT IT
 python get_ecb_data.py --data_path path_to_data
 
 Currently:
-python get_ecb_data.py --data_path /home/sago/Documents/GitHub/ecbPlus/ECB+_LREC2014
+python get_ecb_data.py --data_path ../../../data/ECB+_LREC2014
 ```
 
 

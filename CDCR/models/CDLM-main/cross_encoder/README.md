@@ -18,7 +18,7 @@ python get_ecb_data.py --data_path path_to_data
 Currently:
 python get_ecb_data.py --data_path ../../../data/ECB+_LREC2014
 ```
-
+But the data is versioned so there is no need to run it again
 
 
 ## Training Instructions

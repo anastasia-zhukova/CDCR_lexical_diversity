@@ -1,13 +1,12 @@
 #import libraries
 from datasets import load_dataset
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, TextClassificationPipeline, Trainer
+from transformers import AutoModelForSequenceClassification, Trainer
 import torch
 from utils import *
 
-#Load dataset, model and tokenizer
+#Load dataset and model
 dataset_test = load_dataset('glue', 'mrpc', split='test')
 model = AutoModelForSequenceClassification.from_pretrained('bert-base-cased')
-tokenizer = AutoTokenizer.from_pretrained('bert-base-cased')
 
 # Load pretrained model and set it to evaluation mode
 model.load_state_dict(torch.load('state.pt'), strict=True)

@@ -1,6 +1,10 @@
 import evaluate
 import numpy as np
 
+from transformers import AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained('bert-base-cased')
+
 #Tokenize dataset
 def tokenize_function(examples):
     return tokenizer(examples["sentence1"], examples["sentence2"], truncation=True, padding="max_length")

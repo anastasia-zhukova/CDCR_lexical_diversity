@@ -12,13 +12,15 @@ model = AutoModelForSequenceClassification.from_pretrained('bert-base-cased')
 model.load_state_dict(torch.load('state.pt'), strict=True)
 model = model.eval()
 
+
+# tokenize dataset
+tokenized_dataset = reformat_dataset(dataset_test)
+
 # setup the trainer
 trainer = Trainer(
     model=model
 )
 
-# tokenize dataset
-tokenized_dataset = reformat_dataset(dataset_test)
 
 # Make predictions on the test dataset
 predictions = trainer.predict(tokenized_dataset)

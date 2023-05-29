@@ -17,6 +17,7 @@ trainer = Trainer(
     args=training_args,
     train_dataset=tokenized_dataset["train"],
     eval_dataset=tokenized_dataset["validation"],
+    compute_metrics=compute_metrics
 )
 
 # Train the model

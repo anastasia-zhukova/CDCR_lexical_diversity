@@ -14,16 +14,16 @@ training_args = TrainingArguments(
     learning_rate=2e-5,
     per_device_train_batch_size=32,
     per_device_eval_batch_size=32,
-    num_train_epochs=3,
+    num_train_epochs=5,
     weight_decay=0.01,
     logging_dir="./logs",
     logging_steps=25, #add info to log after n steps
-    save_steps=50, #Save checkpoints after n steps
-    save_total_limit=3,
+    #save_steps=50, #Save checkpoints after n steps
+    #save_total_limit=3,
     run_name= "model_run",
-    disable_tqdm = False,
-    load_best_model_at_end = True,
-    metric_for_best_model="eval_accuracy",
+    disable_tqdm = False
+    #load_best_model_at_end = True,
+    #metric_for_best_model="accuracy",
     
 )
 
@@ -40,6 +40,6 @@ def reformat_dataset(dataset):
 
 def compute_metrics(eval_preds):
     metric = evaluate.load("glue", "mrpc")
-    logits, labels,_ = eval_preds
+    logits, labels,*_ = eval_preds
     predictions = np.argmax(logits, axis=-1)
     return metric.compute(predictions=predictions, references=labels)

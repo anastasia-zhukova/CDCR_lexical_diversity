@@ -14,6 +14,7 @@
 
 module load anaconda3
 module load cuda
+conda info --envs
 source activate cdcr # Or whatever you called your environment.
 
 # Printing out some info.

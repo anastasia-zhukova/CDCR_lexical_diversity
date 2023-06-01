@@ -1,7 +1,0 @@
-name: cdcr
-channels:
-  - conda-forge
-  - defaults
-dependencies:
-  - python=3.7.16
-prefix: /home/sago/miniconda3/envs/cdcr

@@ -4,7 +4,7 @@ from tqdm import tqdm
 import json
 import pandas as pd
 import swifter
-from vocab import Vocab
+from Data.vocab import Vocab
 import random
 
 
@@ -117,12 +117,17 @@ def get_vocab(base_path, dataset='mscoco'):
 
     def read_data_from_list(data, lowercase=True):
         for num, sen in enumerate(data):
-            for word in sen.strip().split(" "):
-                if lowercase:
-                    vocab.add_word(word.lower())
-                else:
-                    vocab.add_word(word)
-        print('End', num)
+            if not isinstance(sen, str):
+                sen = str(sen)  # Convert non-string elements to strings
+        
+            if sen.strip():  # Skip empty strings
+                for word in sen.strip().split(" "):
+                    
+                    if lowercase:
+                        vocab.add_word(word.lower())
+                    else:
+                        vocab.add_word(word)
+            print('End', num)
 
     if dataset == 'mscoco':
         df = pd.read_csv(base_path + 'train.csv')
@@ -134,7 +139,7 @@ def get_vocab(base_path, dataset='mscoco'):
         read_data_from_list(df['sen2'].to_list(), lowercase=True)
     vocab.save_vocab(base_path + f'{dataset}.vocab')
     vocab = Vocab()
-    vocab.load_vocab_from_file(base_path + f'{dataset}vocab')
+    vocab.load_vocab_from_file(base_path + f'{dataset}.vocab')
     vocab.limit_vocab_length(vocab_size)
     vocab.save_vocab_for_nmt(base_path + f'dataset.{str(vocab_size)}')
 

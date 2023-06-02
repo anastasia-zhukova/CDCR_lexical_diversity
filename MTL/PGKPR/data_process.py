@@ -1,9 +1,8 @@
 from Data.dataUtils import split_quora, split_mscoco, get_vocab, ger_stage_one_mscoco
 
 # tokenize data, get vocab and split train dev
-split_quora('./train.csv', out_path='data/quora/')
-# split_mscoco('captions_train2017.json', out_path='data/quora/') change out_path
-split_mscoco('captions_train2017.json', out_path='data/mscoco/')
+#split_quora('./train.csv', out_path='data/quora/')
+#split_mscoco('captions_train2017.json', out_path='data/mscoco/')
 # get vocab
 get_vocab('data/mscoco/', dataset='mscoco')
 get_vocab('data/quora/', dataset='quora')

@@ -24,15 +24,15 @@ epochs = 5
 
 MODE_MSCOCO = True  # if quora, set False
 task_name = 'mscoco_cls'
-data_path = ".data/mscoco/is_paraphrase/"
+data_path = "./data/mscoco/is_paraphrase/"
 
-log_path = '.runs/mscoco/cls_runs/' + task_name
+log_path = './runs/mscoco/cls_runs/' + task_name
 model_save_path = 'model_save/cls_model_save/' + task_name
 
 if not os.path.exists(log_path):
-    os.mkdir(log_path)
+    os.makedirs(log_path)
 if not os.path.exists(model_save_path):
-    os.mkdir(model_save_path)
+    os.makedirs(model_save_path)
 writer = SummaryWriter(log_path)
 
 random.seed(SEED)

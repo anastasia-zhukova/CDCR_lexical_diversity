@@ -4,6 +4,11 @@
 the code of 
 Multi-task Learning for Paraphrase Generation With Keyword and Part-of-Speech Reconstruction
 
+### 0. Get data (Sergio added this)
+
+- Get mscoco from https://huggingface.co/datasets/merve/coco/resolve/main/annotations/captions_train2017.json
+ -  get QQP from https://github.com/bhavul/Quora-Question-Pairs/blob/master/train.csv
+
 
 ### 1. Data Preprocess
 

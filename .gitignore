@@ -8,3 +8,7 @@ __pycache__/
 
 #Folder with cross-encoder runs
 /CDCR/models/CDLM-main/cross_encoder/runs/
+
+#CSV and JSON from PGKPR
+MTL/PGKPR/**/*.csv
+MTL/PGKPR/**/*.json

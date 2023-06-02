@@ -8,8 +8,11 @@ from vocab import Vocab
 import random
 
 
+nltk.download('punkt')
+nltk.download('averaged_perceptron_tagger')
+
 def get_pos(x):
-    x = x.split(" ")
+    x = str(x).split(" ")
     return " ".join(['[' + i[1] + ']' for i in nltk.pos_tag(x)])
 
 
@@ -26,14 +29,25 @@ def split(df, sample_nums=[100000, 4000, 20000], random_state=666):
 
 
 def split_quora(data_path, out_path):
-    df = pd.read_csv(data_path, [100000, 4000, 20000], 666)
-    #Check if this is what they meant:
-    # df = pd.read_csv(data_path, nrows=100000, skiprows=4000, skipfooter=20000, random_state=666)
+    # df = pd.read_csv(data_path, [100000, 4000, 20000], 666) Original line
+    
+    # What I suspect. check in the paper:
+    df = pd.read_csv(data_path)
+    # Presample to avoid tokenizing rows that will be dropped:
+    df = df.sample(n=100000 + 4000+20000, random_state=666,ignore_index=True)
+
+    # Convert question 1 and 2 to string to ensure tokenization
+    df['question1'] = df['question1'].astype(str)
+    df['question2'] = df['question2'].astype(str)
 
     df['sen1'] = df['question1'].apply(lambda x: " ".join(nltk.word_tokenize(x)))
     df['sen2'] = df['question2'].apply(lambda x: " ".join(nltk.word_tokenize(x)))
     df['pos1'] = df['sen1'].swifter.apply(get_pos)
     df['pos2'] = df['sen2'].swifter.apply(get_pos)
+
+    # Create the output directory if it doesn't exist
+    os.makedirs(out_path, exist_ok=True)
+
     df.to_csv(out_path + 'total.csv')
     dataset = split(df)
     for d, n in zip(dataset, ['train.csv', 'val.csv', 'test.csv']):
@@ -60,6 +74,9 @@ def split_mscoco(datapath, out_path):
         sentence_sets = [paraphrases[im] for im in paraphrases if len(paraphrases[im]) == 5]
         return sentence_sets
 
+    # Create the output directory if it doesn't exist
+    os.makedirs(out_path, exist_ok=True)
+
     data = mscoco_read_json(datapath, bleu_baseline=True)
     df = pd.DataFrame(columns=[f'question{j}' for j in range(1, 6)])
     for idx, i in enumerate([f'question{j}' for j in range(1, 6)]):
@@ -72,6 +89,7 @@ def split_mscoco(datapath, out_path):
 
     for i in range(1, 6):
         data[f'pos{i}'] = data[f'question{i}'].swifter.apply(get_pos)
+
     data.to_csv(out_path + 'total.csv', index=False)
     data['sen1'] = data['question1']
     data['sen2'] = data['question2']
@@ -85,7 +103,8 @@ def split_mscoco(datapath, out_path):
         t = first.copy()
         t['sen1'] = t['question1']
         t['sen2'] = t[f'question{i}']
-        train = train.append(t)
+        train = pd.concat([train,t])
+        #train.append(t) method is deprecated
     train = train.reset_index()
     train = train.drop(columns=['index'])
     train.to_csv(out_path + 'train_flatten.csv', index=False)
@@ -147,8 +166,9 @@ def ger_stage_one_mscoco(inpath, out_path):
         net = sample_neg_df(df, n=neg_n)
         pos = df.copy()
         pos['sen2'] = pos['sen1']
-        df = df.append(pos)
-        df = df.append(net)
+        df = pd.concat([df,pos,net])
+        # df = df.append(pos) append is deprecated
+        # df = df.append(net)
         return df
 
     drop_col = ['question1', 'question2', 'pos1', 'pos2', 'question3', 'question4', 'question5']

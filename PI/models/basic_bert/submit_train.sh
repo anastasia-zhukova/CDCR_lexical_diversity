@@ -23,6 +23,12 @@ echo "Home directory: ${HOME}"
 echo "Working directory: $PWD"
 echo "Current node: ${SLURM_NODELIST}"
 
+
+export http_proxy=http://www-cache.gwdg.de:3128
+export https_proxy=http://www-cache.gwdg.de:3128
+
+echo "added http proxy"
+
 # For debugging purposes.
 python --version
 python -m torch.utils.collect_env

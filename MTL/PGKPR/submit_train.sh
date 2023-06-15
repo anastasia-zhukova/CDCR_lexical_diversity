@@ -15,7 +15,7 @@
 module load anaconda3
 module load cuda
 conda info --envs
-source activate basic_bert # Or whatever you called your environment.
+source activate pgkpr # Or whatever you called your environment.
 
 # Printing out some info.
 echo "Submitting job with sbatch from directory: ${SLURM_SUBMIT_DIR}"

@@ -26,7 +26,7 @@ python data_process.py
 
 ### 2. Stage One
 
-#### 2.1 pretrian bert with is_paraphrase task
+#### 2.1 pretrain bert with is_paraphrase task
 
 run stage_one_fine_tune.py
 

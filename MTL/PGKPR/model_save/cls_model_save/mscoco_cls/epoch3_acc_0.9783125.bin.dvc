@@ -1,0 +1,4 @@
+outs:
+- md5: 0708084abe324d98a2170549f0fcada1
+  size: 438023369
+  path: epoch3_acc_0.9783125.bin

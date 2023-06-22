@@ -15,8 +15,7 @@ input_prediction = args.prediction_file
 split_name = input_prediction.split("_")
 if len(split_name)<2:
     raise ValueError(f"use a valid prediction name")
-split_name = split_name[1].split("-")
-dataset_name = split_name[0]
+dataset_name = split_name[1]
 
 # Validate the split parameter
 valid_datasets = ["mrpc", "how"]

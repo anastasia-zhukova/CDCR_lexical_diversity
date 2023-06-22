@@ -17,7 +17,12 @@ This code performs prediction using a pre-trained sequence classification model 
 2. Run the script with the following command:
 
 ```shell
-python make_predictions.py --dataset <dataset_name>
+python 1_make_predictions.py --dataset <dataset_name> --model <model's states file name>
+```
+Example:
+
+```shell
+python 1_make_predictions.py --dataset mrpc --model state.pt
 ```
 
 # Classification Metrics and Confusion Matrix

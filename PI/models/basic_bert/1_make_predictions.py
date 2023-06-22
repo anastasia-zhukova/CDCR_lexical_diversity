@@ -9,9 +9,12 @@ import os
 
 # Parse the dataset parameter from the console
 parser = argparse.ArgumentParser()
-parser.add_argument("--dataset", required=True,type=str, help="test dataset to use dataset to use")
+parser.add_argument("--dataset", required=True,type=str, help="test dataset to use")
+parser.add_argument("--model", required=True,type=str, help="Choose the state file to load the model")
+
 args = parser.parse_args()
 input_dataset = args.dataset.lower()
+model_name = args.model
 
 # Validate the split parameter
 valid_datasets = ["mrpc", "how"]
@@ -30,7 +33,7 @@ else:
 model = AutoModelForSequenceClassification.from_pretrained('bert-base-cased')
 
 # Load pretrained model and set it to evaluation mode
-model.load_state_dict(torch.load('state.pt'), strict=True)
+model.load_state_dict(torch.load(model_name), strict=True)
 model = model.eval()
 
 # Tokenize dataset
@@ -48,7 +51,7 @@ os.makedirs(output_folder, exist_ok=True)
 
 # Export predictions to a CSV file
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-output_filename = f"predictions_{args.dataset}-{timestamp}.csv"
+output_filename = f"predictions_{args.dataset}_{args.model}_{timestamp}.csv"
 output_path = os.path.join(output_folder, output_filename)
 df_predictions = pd.DataFrame(predictions.predictions)
 df_predictions.to_csv(output_path, index=False)

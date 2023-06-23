@@ -179,10 +179,16 @@ def ger_stage_one_mscoco(inpath, out_path):
     drop_col = ['question1', 'question2', 'pos1', 'pos2', 'question3', 'question4', 'question5']
     val = pd.read_csv(inpath + 'val.csv').drop(columns=drop_col)
     train = pd.read_csv(inpath + 'train.csv').drop(columns=drop_col)
+    #Added test load
+    test = pd.read_csv(inpath + 'test.csv').drop(columns=drop_col)
+
     val = is_parapharase_ger(val, neg_n=2)
     train = is_parapharase_ger(train, neg_n=4)
+    test = is_parapharase_ger(val, neg_n=2)
+
     val.to_csv(out_path + 'val.csv', index=False)
     train.to_csv(out_path + 'train.csv', index=False)
+    test.to_csv(out_path + 'test.csv', index=False)
 
 
 

@@ -9,7 +9,7 @@ from tqdm import tqdm
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 
 
-model_weight_path = 'you_model_weight_path'
+model_weight_path = 'model_save/cls_model_save/mscoco_cls/epoch3_acc_0.9783125.bin'
 
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 seed = 0

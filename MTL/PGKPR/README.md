@@ -1,6 +1,3 @@
-## I add the setup.py file to wrap this code as a python package to be able to use a different poetry configuration file independent of the big one. Now I am thinking I should have a bunch of different poetry files and environments since they are all proofs of concept
-
-
 the code of 
 Multi-task Learning for Paraphrase Generation With Keyword and Part-of-Speech Reconstruction
 

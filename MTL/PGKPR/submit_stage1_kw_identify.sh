@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=train-cdcr-gpu
+#SBATCH --job-name=train-mtl-gpu
 #SBATCH -t 01:00:00                  # estimated time # TODO: adapt to your needs
 #SBATCH -p grete:shared              # the partition you are training on (i.e., which nodes), for nodes see sinfo -p grete:shared --format=%N,%G
 #SBATCH -G A100:1                   # take 1 GPU, see https://www.hlrn.de/doc/display/PUB/GPU+Usage for more options
@@ -12,9 +12,16 @@
 #SBATCH --output=./slurm_files/slurm-%x-%j.out     # where to write output, %x give job name, %j names job id
 #SBATCH --error=./slurm_files/slurm-%x-%j.err      # where to write slurm error
 
-module load anaconda3
+source ~/.bashrc
+loadconda
 module load cuda
+
+which python 
+echo $PATH
+
+
 conda info --envs
+
 source activate pgkpr # Or whatever you called your environment.
 
 # Printing out some info.

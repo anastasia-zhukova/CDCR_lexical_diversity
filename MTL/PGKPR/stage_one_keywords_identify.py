@@ -99,7 +99,7 @@ def data_loader(path, mode='xy'):
     df = pd.read_csv(path)
     for i in df.columns:
         if i in ['question1', 'question2', 'sen1', 'sen2']:
-            df[i] = df[i].apply(lambda x: x.lower())
+            df[i] = df[i].apply(lambda x: str(x).lower() if isinstance(x, str) else str(x))
     if mode == 'xx':
         tokens = tokenizer(df.question1.to_list(), df.question2.to_list(),
                            return_tensors="pt", padding=True, max_length=51, truncation=True)
@@ -148,6 +148,7 @@ def run_dataset(in_path, out_path, mode='xy'):
         df['xy_scores'] = res_scores
     elif mode == 'xx':
         df['xx_scores'] = res_scores
+    print(df.shape)
     df.to_csv(out_path, index=False)
 
 

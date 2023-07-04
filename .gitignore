@@ -12,3 +12,4 @@ __pycache__/
 #CSV and JSON from PGKPR
 MTL/PGKPR/**/*.csv
 MTL/PGKPR/**/*.json
+/CDCR/data/*/

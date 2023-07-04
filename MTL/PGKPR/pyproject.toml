@@ -17,6 +17,7 @@ tensorboardx = "^2.6"
 dvc = "^2.58.2"
 dvc-gdrive = "^2.19.2"
 protobuf = "3.20.0"
+pydrive2 = "1.16.0"
 
 
 [build-system]

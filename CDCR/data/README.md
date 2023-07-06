@@ -13,3 +13,14 @@ takes a dictionary of predictions whose key is the cluster id, and the value is 
 dataset.py
 
 This is the code I need to explore to understand the encoding well.
+
+Overall this code prepares this data in the encoded format:
+
+ [tara] [Reid] [has] [START] [entered] [END] [a] [rehab] [program] [SEP] [another] [star] [START] [into] [END] [due] [to] [excess] [SEP]     
+ And combines all possible mentions within each topic, creating a label tensor of 1s if the coref ID is the same.
+
+ ----------------------
+ evaluator.py
+ 
+ Computes classification metrics
+ 

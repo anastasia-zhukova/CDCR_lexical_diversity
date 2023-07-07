@@ -1,6 +1,10 @@
 This seems to be the building block of CDCR encoding:
 https://github.com/ariecattan/cross_encoder
-So I will analyze it and replicate it in depth
+So I will analyze it in depth and replicate it.
+The repository of CDCR over predicted mentions has more detailed information and configuration files to
+run the models:
+https://github.com/ariecattan/coref/tree/master
+
 
 Conll.py: Overall, this code processes predictions, document IDs, start/end indices, and token data to generate CoNLL output files in both corpus level and topic level formats.
 

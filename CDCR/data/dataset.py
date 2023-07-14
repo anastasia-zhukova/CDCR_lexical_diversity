@@ -173,9 +173,7 @@ class CrossEncoderDatasetFull(data.Dataset):
         #Then the context would be: 'Tara', 'Reid', 'has', 'entered', 'a', 'rehab', 'program', '.'
         #In that example, if the mention is entered, then it takes all the tokens from the sentence
         # prior the mention and those after:
-        # [tara] [Reid] [has] [START] [entered] [END] [a] [rehab] [program] 
-        # But already with token encoding
-        # [1] [20] [30] ....
+        #  'went', 'to',  'Promises',  '[START]',  'on',  'Tuesday',  '[END]',  'and',  'that',  'her',  'friends',
         return ' '.join(mention_repr)
 
 
@@ -188,7 +186,7 @@ class CrossEncoderDatasetFull(data.Dataset):
         instances = [' '.join([mentions_repr[first[i]], "[SEP]",
                                     mentions_repr[second[i]], "[SEP]"]) for i in range(len(first))]
         # Then it turns it into:
-        # [1] [ 30] [20] ... [999 (SEP)] [25] [10] [999]...
+        # 'A friend of the actress told People she went to Promises [START] on Tuesday [END] and that her friends and family supported her decision .'
         return instances
 
 

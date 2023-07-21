@@ -9,6 +9,13 @@ import json
 import hashlib
 from collections import namedtuple
 
+class DatasetConfig():
+    def __init__(self, data_folder,mention_type,use_gold_mentions=True):
+        self.data_folder = data_folder
+        self.use_gold_mentions= use_gold_mentions
+        self.mention_type = mention_type
+
+
 def generate_unique_hash(text):
     hash_object = hashlib.sha256(text.encode())
     hex_digest = hash_object.hexdigest()
@@ -74,17 +81,14 @@ class CrossEncoderDatasetInstances(data.Dataset):
 
 
 class CrossEncoderDatasetFull(data.Dataset):
-    def __init__(self, config, same_lemma=False):
-        # self.corpus = corpuss
-        # self.documents = corpus.documents
-        # self.mentions = corpus.mentions
-
-        self.read_files(config)
+    def __init__(self, config,split_name='train', same_lemma=False):
+        
+        self.read_files(config,split_name) #Sets self.documents, self.topics and self.mentions belonging to the topics
         # self.lemmas = np.asarray([x['lemmas'] for x in self.mentions]) #Do not know yet why we need the lemmas}
-        self.topics = set([m['topic'] for m in self.mentions])
+
         #If the mention labels are only turned into tensors to create the labels then I do not
         #need to use the generate_hash function later
-        self.mention_labels = torch.tensor([generate_unique_hash(m['coref_chain']) for m in self.mentions])
+        self.coreference_labels = torch.tensor([generate_unique_hash(m['coref_chain']) for m in self.mentions])
         self.doc_dict = self.make_dict_of_sentences(self.documents)
 
 
@@ -101,8 +105,8 @@ class CrossEncoderDatasetFull(data.Dataset):
             mentions = torch.tensor(mentions)
             first, second = torch.tensor(first), torch.tensor(second)
             first, second = mentions[first], mentions[second]
-            labels = (self.mention_labels[first] != 0) & (self.mention_labels[second] != 0) \
-                     & (self.mention_labels[first] == self.mention_labels[second])
+            labels = (self.coreference_labels[first] != 0) & (self.coreference_labels[second] != 0) \
+                     & (self.coreference_labels[first] == self.coreference_labels[second])
 
             self.first.extend(first)
             self.second.extend(second)
@@ -111,6 +115,21 @@ class CrossEncoderDatasetFull(data.Dataset):
         self.first = torch.tensor(self.first)
         self.second = torch.tensor(self.second)
         self.labels = torch.tensor(self.labels, dtype=torch.float)
+
+        # https://github.com/ariecattan/coref/blob/master/train_pairwise_scorer.py
+        # I will leave it for now like this for any split, but I have to adjust for test
+        positives = torch.nonzero(self.labels == 1).squeeze()
+        positive_ratio = len(positives) / len(self.first)
+        negatives = torch.nonzero(self.labels != 1).squeeze()
+        rands = torch.rand(len(negatives))
+        rands = (rands < positive_ratio * 5).to(torch.long)
+        sampled_negatives = negatives[torch.nonzero(rands).squeeze()]
+
+        new_first = torch.cat((self.first[positives], self.first[sampled_negatives]))
+        new_second = torch.cat((self.second[positives], self.second[sampled_negatives]))
+        new_labels = torch.cat((self.labels[positives], self.labels[sampled_negatives]))
+
+        self.first, self.second, self.labels = new_first, new_second, new_labels
 
         #Don't know why they do this
         # if same_lemma:
@@ -126,18 +145,25 @@ class CrossEncoderDatasetFull(data.Dataset):
 
 
 
-    def read_files(self, config): # Removed split_name parameter since only ECB+ has split folders
-        docs_path = os.path.join(config.data_folder,'dataset.conll')
+    def read_files(self, config,split_name):
+        docs_path = os.path.join(config.data_folder + split_name +'/','dataset.conll')
         mentions_path = os.path.join(config.data_folder,'{}.json'.format(config.mention_type))
         # with open(docs_path, 'r') as f:
         #     self.documents = json.load(f)
 
         self.documents = read_conll_file(docs_path)
+        # Get topics from documents
+        topics = []
+        for key in self.documents.keys():
+            topics.append(key.split('/')[0])
+        self.topics = list(set(topics))
+
         self.mentions = []
         if config.use_gold_mentions:
             with open(mentions_path, 'r') as f:
                 self.mentions = json.load(f)
-
+        #Filter mentions that belong to the topics
+        self.mentions = [mention for mention in self.mentions if mention['topic'] in self.topics]
 
     #Modified method
     def make_dict_of_sentences(self, documents):
@@ -201,7 +227,9 @@ class CrossEncoderDatasetFull(data.Dataset):
 
 
 
-
+#Since I define the split in the initialization of the CrossEncoderDatasetFull class,
+# I don't need this class, but I will leave it here in case that later
+# I need to divide it by topic for evaluation
 class CrossEncoderDatasetTopic(data.Dataset):
     def __init__(self, full_dataset, topic):
         super(CrossEncoderDatasetTopic, self).__init__()

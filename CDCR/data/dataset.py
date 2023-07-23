@@ -96,10 +96,11 @@ class CrossEncoderDatasetFull(data.Dataset):
         for i, m in enumerate(self.mentions):
             self.mentions_by_topics[m['topic']].append(i)
 
+        print('topics keys',self.mentions_by_topics.keys())
         self.first = []
         self.second = []
         self.labels = []
-
+        
         for topic, mentions in self.mentions_by_topics.items():
             first, second = zip(*list(combinations(range(len(mentions)), 2)))
             mentions = torch.tensor(mentions)
@@ -107,15 +108,21 @@ class CrossEncoderDatasetFull(data.Dataset):
             first, second = mentions[first], mentions[second]
             labels = (self.coreference_labels[first] != 0) & (self.coreference_labels[second] != 0) \
                      & (self.coreference_labels[first] == self.coreference_labels[second])
+            labels = torch.tensor(labels,dtype=torch.float)
 
-            self.first.extend(first)
-            self.second.extend(second)
-            self.labels.extend(labels)
+            self.first.append(first)
+            self.second.append(second)
+            self.labels.append(labels)
 
-        self.first = torch.tensor(self.first)
-        self.second = torch.tensor(self.second)
-        self.labels = torch.tensor(self.labels, dtype=torch.float)
+        self.first = torch.cat(self.first)
+        self.second = torch.cat(self.second)
+        self.labels = torch.cat(self.labels)
 
+        print('first',self.first.shape)
+        print('second',self.second.shape)
+        print('labels',self.labels.shape)
+
+        # Downsample the number of negative examples following a 1:5 proportion 
         # https://github.com/ariecattan/coref/blob/master/train_pairwise_scorer.py
         # I will leave it for now like this for any split, but I have to adjust for test
         positives = torch.nonzero(self.labels == 1).squeeze()
@@ -147,7 +154,7 @@ class CrossEncoderDatasetFull(data.Dataset):
 
     def read_files(self, config,split_name):
         docs_path = os.path.join(config.data_folder + split_name +'/','dataset.conll')
-        mentions_path = os.path.join(config.data_folder,'{}.json'.format(config.mention_type))
+        mentions_path = os.path.join(config.data_folder+ split_name +'/','{}.json'.format(config.mention_type))
         # with open(docs_path, 'r') as f:
         #     self.documents = json.load(f)
 
@@ -162,8 +169,11 @@ class CrossEncoderDatasetFull(data.Dataset):
         if config.use_gold_mentions:
             with open(mentions_path, 'r') as f:
                 self.mentions = json.load(f)
-        #Filter mentions that belong to the topics
-        self.mentions = [mention for mention in self.mentions if mention['topic'] in self.topics]
+        #Filter mentions that belong to the topics of the current split
+        self.mentions = [mention for mention in self.mentions if mention['topic_id'] in self.topics]
+        #Filter language of mentions to english for those mentions with that property
+        if "language" in self.mentions[0].keys():
+            self.mentions = [mention for mention in self.mentions if mention['language']=="english"]
 
     #Modified method
     def make_dict_of_sentences(self, documents):

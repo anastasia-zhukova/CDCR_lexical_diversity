@@ -2511,13 +2511,13 @@ pyparsing = ">=2.1.4"
 
 [[package]]
 name = "pydrive2"
-version = "1.15.4"
+version = "1.16.0"
 description = "Google Drive API made easy. Maintained fork of PyDrive."
 optional = false
-python-versions = ">=3.7"
+python-versions = ">=3.8"
 files = [
-    {file = "PyDrive2-1.15.4-py3-none-any.whl", hash = "sha256:91fe28e5f094a6dfff834495c4aee0041cbef979467ad27cd0d4b1f91afa8869"},
-    {file = "PyDrive2-1.15.4.tar.gz", hash = "sha256:0c011b74ebc24f3c6ca72820626b77f1dfe0ae88f5740c5a5cf96e83dd79ba99"},
+    {file = "PyDrive2-1.16.0-py3-none-any.whl", hash = "sha256:6c38392ccdd2ea6e0615ffcd93ee30be1fac62a170ddeacebad7958a3e040ca4"},
+    {file = "PyDrive2-1.16.0.tar.gz", hash = "sha256:bbdc8d2e002e4f87d20f9bd849f93fd6589ebb40dad97f94b6f382b4ffd6b3c1"},
 ]
 
 [package.dependencies]
@@ -2956,6 +2956,20 @@ typing-extensions = {version = ">=4.0.0,<5.0", markers = "python_version < \"3.9
 
 [package.extras]
 jupyter = ["ipywidgets (>=7.5.1,<9)"]
+
+[[package]]
+name = "rouge"
+version = "1.0.1"
+description = "Full Python ROUGE Score Implementation (not a wrapper)"
+optional = false
+python-versions = "*"
+files = [
+    {file = "rouge-1.0.1-py3-none-any.whl", hash = "sha256:28d118536e8c774dc47d1d15ec266479b4dd0914c4672ce117d4002789bdc644"},
+    {file = "rouge-1.0.1.tar.gz", hash = "sha256:12b48346ca47d6bcf3c45061f315452b9ccec0620ee895ec85b7efc3d54aae34"},
+]
+
+[package.dependencies]
+six = "*"
 
 [[package]]
 name = "rsa"
@@ -3783,4 +3797,4 @@ testing = ["big-O", "flake8 (<5)", "jaraco.functools", "jaraco.itertools", "more
 [metadata]
 lock-version = "2.0"
 python-versions = "3.8.16"
-content-hash = "69bbca4a47693f92b9c10271e349ea705448d84f14e999f30bd4b952719bcf21"
+content-hash = "215ee2afc59bf170efb84e6a37ffbe0ceda5252f9a9c5d6f2c279c19d45921db"

@@ -15,6 +15,7 @@ def kw_by_posibility(df, large=True, mode='xy', random_seed=666):
     for sen, score in zip(dfsens, dfscores):
         score = [float(i) for i in score.strip().split(" ")]
         sen = sen.strip().split(" ")
+        print(len(score),print(len(sen)))
         assert len(score) == len(sen)
         kw = []
         for w, s in zip(sen, score):
@@ -67,8 +68,8 @@ if __name__ == '__main__':
     out_path_mscoco_xx = './data/mscoco/stg_two_xx/'
     out_path_mscoco_xy = './data/mscoco/stg_two_xy/'
 
-    get_stage_two_data(in_path_quora, out_path_quora_xx, mode='xx')
-    get_stage_two_data(in_path_quora, out_path_quora_xy, mode='xy')
+    # get_stage_two_data(in_path_quora, out_path_quora_xx, mode='xx')
+    # get_stage_two_data(in_path_quora, out_path_quora_xy, mode='xy')
 
-    get_stage_two_data(in_path_mscoco, out_path_mscoco_xx, mode='xx')
+    #get_stage_two_data(in_path_mscoco, out_path_mscoco_xx, mode='xx')
     get_stage_two_data(in_path_mscoco, out_path_mscoco_xx, mode='xy')

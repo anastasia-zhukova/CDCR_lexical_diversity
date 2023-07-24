@@ -3,19 +3,41 @@ from architecture import Embeddings, PositionalEncoding, Encoder, Batch,BinaryCl
 import torch.nn as nn
 import torch
 import math
+from enum import Enum
 from utils import loadVocab, vocab_path
 
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler
 
-#Load data
-train_inputs,val_inputs, test_inputs = torch.load("train_inputs.pt"),torch.load("val_inputs.pt"),torch.load("test_inputs.pt")
-train_labels,val_labels, test_labels = torch.load("train_labels.pt"),torch.load("val_labels.pt"),torch.load("test_labels.pt")
+# Define Enum for phases
+class Phase(Enum):
+    TRAIN = 'train'
+    VALIDATION = 'val'
+    TEST = 'test'
+
+# Function to load and preprocess data
+def load_preprocess_data(data_path, label_path, batch_size, phase):
+    data_inputs, data_labels = torch.load(data_path), torch.load(label_path)
+    dataset = TensorDataset(data_inputs, data_labels)
+    if phase == Phase.TRAIN:
+        sampler = RandomSampler(dataset)
+    else:
+        sampler = None
+    return DataLoader(dataset, sampler=sampler, batch_size=batch_size)
+
+# Load data
+train_dataloader = load_preprocess_data("train_inputs.pt", "train_labels.pt", batch_size=64, phase=Phase.TRAIN)
+val_dataloader = load_preprocess_data("val_inputs.pt", "val_labels.pt", batch_size=64, phase=Phase.VALIDATION)
+test_dataloader = load_preprocess_data("test_inputs.pt", "test_labels.pt", batch_size=64, phase=Phase.TEST)
+
 
 #Load tokenizer
 LOWERCASE = True
 token2idx, idx2token = loadVocab(vocab_path, lowercase=LOWERCASE) 
 vocab_size = len(token2idx)
 
+#Search device
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print("running on", device)
 #Define model parameters
 D_MODEL = 512
 
@@ -29,24 +51,10 @@ VAL_BATCH_SIZE = 64
 # Load model and plug optimizer
 model = PGKPR(d_model=D_MODEL, vocab=vocab_size, mid_loss=MID_LOSS, double_pe=DOUBLE_POSITION,
                           shared_emb=True)
-
+model.to(device)
 
 model_opt = torch.optim.Adam(model.parameters(), lr=1e-4, betas=(0.9, 0.98), eps=1e-9)
 
-#Pack to tuples 
-train_data = train_inputs, train_labels 
-val_data = val_inputs, val_labels
-test_data = test_inputs, test_labels
-
-train_data = TensorDataset(*train_data)
-train_sampler = RandomSampler(train_data)
-train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=BATCH_SIZE)
-
-val_data = TensorDataset(*val_data)
-test_data = TensorDataset(*test_data)
-
-val_dataloader = DataLoader(val_data, batch_size=VAL_BATCH_SIZE)
-test_dataloader = DataLoader(test_data, batch_size=VAL_BATCH_SIZE)  
 
 dataloader = {'train': train_dataloader, 'val': val_dataloader, 'test':test_dataloader}
 
@@ -88,6 +96,7 @@ for epoch in range(5): #TODO define epochs parameter from config file
             #Dataloader should be controlled to send a batch of one task only.
             for i, data in enumerate(dataloader[phase]):
                 src, tgt= data #dataloader must have source and target, in my case the label
+                src, tgt = src.to(device), tgt.to(device)
                 batch = Batch(src, tgt)
                 # src, tgt= src.cuda() tgt.cuda()#TODO send everything to device. I could adapt it to finding device first
                 binary_loss = run_once(model,batch,loss_function,model_opt,is_training)

@@ -13,14 +13,6 @@ def subsequent_mask(size):
     subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
     return torch.from_numpy(subsequent_mask) == 0
 
-class Batch:
-    "Object for holding a batch of data with mask during training."
-    #I modified it from the original because I won't use another sequence but a binary label
-    def __init__(self, src, trg, pad=0):
-        self.src = src
-        self.src_mask = (src != pad).unsqueeze(-2)
-        self.trg = trg
-    
 
 ### encoder
 def clones(module, N):
@@ -294,7 +286,8 @@ class PGKPR(nn.Module):
 
         #This BertClassification layer seems to return an output per token, but the logic could be 
         #Useful to decode to a binary output
-        self.decoder = BinaryClassifier(hidden_size=d_model, layer_norm_eps=1e-12)
+        self.decoder_cdcr = BinaryClassifier(hidden_size=d_model, layer_norm_eps=1e-12)
+        self.decoder_pi = BinaryClassifier(hidden_size=d_model, layer_norm_eps=1e-12)
 
         self.parameters_init()
 
@@ -304,15 +297,46 @@ class PGKPR(nn.Module):
         
         return self.encoder(embedding, src_mask)
 
-    def decode(self, final_encoder_layer):
-        return self.decoder(final_encoder_layer)
+    def decode_cdcr(self, final_encoder_layer):
+        return self.decoder_cdcr(final_encoder_layer)
     
-    def forward(self, src,src_mask):
+    def decode_pi(self, final_encoder_layer):
+        return self.decoder_pi(final_encoder_layer)
+    
+
+    def forward(self, src, src_mask, dataset_id):
         """Take in and process masked src and target sequences."""
-        #
         encode_out, _ = self.encode(src, src_mask)
-        #encode_out is the final encoded layer and pre_encode_out an intermediate one defined by return layer
-        x = self.decode(encode_out)
+        # encode_out is the final encoded layer and pre_encode_out an intermediate one defined by return layer
+        # Here I want to separate the incoming data according to the dataset_id
+        
+        # Get the unique values of dataset_id
+        unique_ids = torch.unique(dataset_id)
+        
+        # Initialize the output tensor with zeros
+        x = torch.zeros((dataset_id.shape[0],1))
+        
+        # Loop through each unique dataset_id value
+        for unique_id in unique_ids:
+            # Extract the data corresponding to the current unique_id
+            mask_current = (dataset_id == unique_id)
+            data_current = encode_out[mask_current]
+            
+            # Apply the corresponding decoder based on the condition
+            if unique_id >= 12: #12: MRPC; 13:HoW
+                decoded_output_current = self.decode_pi(data_current)
+            else: #0: ECBPLUS_ENTITY_CONFIG;#1: ECBPLUS_EVENT_CONFIG;
+                #2: FCC_EVENT_CONFIG;#3: FCC_T_ENTITY_CONFIG;
+                # #4: FCC_T_EVENT_CONFIG;#5: GVC_EVENT_CONFIG;
+                # #6: MEANTIME_ENTITY_CONFIG;#7: MEANTIME_EVENT_CONFIG;
+                # #8: NEWSWCL50_ENTITY_CONFIG;#9: NEWSWCL50_EVENT_CONFIG;
+                # #10: NIDENT_ENTITY_CONFIG;#11: NP4E_ENTITY_CONFIG;
+
+                decoded_output_current = self.decode_cdcr(data_current)
+            
+            # Use the mask to update the decoded output back to its original position
+            x[mask_current] = decoded_output_current
+        
         return x
 
 

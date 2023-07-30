@@ -46,8 +46,13 @@ def read_conll_file(filename):
                               parts[4].replace('(','').replace(')','')  )
 
                 current_document_list.append(token)
+
+    topics = []
+    for key in dict_documents.keys():
+        topics.append(key.split('/')[0])
+    topics = list(set(topics))
     
-    return dict_documents
+    return dict_documents, topics
 
 class CrossEncoderDataset(data.Dataset):
     def __init__(self, mentions_repr, first, second, labels):
@@ -155,15 +160,8 @@ class CrossEncoderDatasetFull(data.Dataset):
     def read_files(self, config,split_name):
         docs_path = os.path.join(config.data_folder + split_name +'/','dataset.conll')
         mentions_path = os.path.join(config.data_folder+ split_name +'/','{}.json'.format(config.mention_type))
-        # with open(docs_path, 'r') as f:
-        #     self.documents = json.load(f)
 
-        self.documents = read_conll_file(docs_path)
-        # Get topics from documents
-        topics = []
-        for key in self.documents.keys():
-            topics.append(key.split('/')[0])
-        self.topics = list(set(topics))
+        self.documents, self.topics  = read_conll_file(docs_path)
 
         self.mentions = []
         if config.use_gold_mentions:
@@ -235,6 +233,46 @@ class CrossEncoderDatasetFull(data.Dataset):
         return self.instances[index], self.labels[index].unsqueeze(-1)
 
 
+
+### Datasets config constants
+ECBPLUS_ENTITY_CONFIG = DatasetConfig(data_folder="../../CDCR/data/ECBplus-prep/output_data/",mention_type="entity_mentions",use_gold_mentions=True)
+ECBPLUS_EVENT_CONFIG = DatasetConfig(data_folder="../../CDCR/data/ECBplus-prep/output_data/",mention_type="event_mentions",use_gold_mentions=True)
+
+#FCC_ENTITY_CONFIG = does not exist
+FCC_EVENT_CONFIG = DatasetConfig(data_folder="../../CDCR/data/FCC-prep/output_data_FCC/",mention_type="event_mentions",use_gold_mentions=True)
+
+FCC_T_ENTITY_CONFIG = DatasetConfig(data_folder="../../CDCR/data/FCC-prep/output_data_FCC-T/",mention_type="entity_mentions_attr",use_gold_mentions=True)
+FCC_T_EVENT_CONFIG = DatasetConfig(data_folder="../../CDCR/data/FCC-prep/output_data_FCC-T/",mention_type="event_mentions",use_gold_mentions=True)
+
+#GVC_ENTITY_CONFIG = does not exist
+GVC_EVENT_CONFIG = DatasetConfig(data_folder="../../CDCR/data/GVC-prep/output_data/",mention_type="event_mentions",use_gold_mentions=True)
+
+MEANTIME_ENTITY_CONFIG = DatasetConfig(data_folder="../../CDCR/data/MEANTIME-prep/output_data/",mention_type="entity_mentions",use_gold_mentions=True)
+MEANTIME_EVENT_CONFIG = DatasetConfig(data_folder="../../CDCR/data/MEANTIME-prep/output_data/",mention_type="event_mentions",use_gold_mentions=True)
+
+NEWSWCL50_ENTITY_CONFIG = DatasetConfig(data_folder="../../CDCR/data/NewsWCL50-prep/output_data/",mention_type="entity_mentions",use_gold_mentions=True)
+NEWSWCL50_EVENT_CONFIG = DatasetConfig(data_folder="../../CDCR/data/NewsWCL50-prep/output_data/",mention_type="event_mentions",use_gold_mentions=True)
+
+NIDENT_ENTITY_CONFIG = DatasetConfig(data_folder="../../CDCR/data/NiDENT-prep/output_data/",mention_type="entity_mentions",use_gold_mentions=True)
+#NIDENT_EVENT_CONFIG = does not exist
+
+NP4E_ENTITY_CONFIG = DatasetConfig(data_folder="../../CDCR/data/NP4E-prep/output_data/",mention_type="entity_mentions",use_gold_mentions=True)
+#NP4E_EVENT_CONFIG = does not exist
+
+datasets_config_constants = {
+    "ECBPLUS_ENTITY_CONFIG": ECBPLUS_ENTITY_CONFIG,
+    "ECBPLUS_EVENT_CONFIG": ECBPLUS_EVENT_CONFIG,
+    "FCC_EVENT_CONFIG": FCC_EVENT_CONFIG,
+    "FCC_T_ENTITY_CONFIG": FCC_T_ENTITY_CONFIG,
+    "FCC_T_EVENT_CONFIG": FCC_T_EVENT_CONFIG,
+    "GVC_EVENT_CONFIG": GVC_EVENT_CONFIG,
+    "MEANTIME_ENTITY_CONFIG": MEANTIME_ENTITY_CONFIG,
+    "MEANTIME_EVENT_CONFIG": MEANTIME_EVENT_CONFIG,
+    "NEWSWCL50_ENTITY_CONFIG": NEWSWCL50_ENTITY_CONFIG,
+    "NEWSWCL50_EVENT_CONFIG": NEWSWCL50_EVENT_CONFIG,
+    "NIDENT_ENTITY_CONFIG": NIDENT_ENTITY_CONFIG,
+    "NP4E_ENTITY_CONFIG": NP4E_ENTITY_CONFIG
+}
 
 
 #Since I define the split in the initialization of the CrossEncoderDatasetFull class,

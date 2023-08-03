@@ -1,6 +1,6 @@
 import torch
 
-from data_loader import Phase, create_data_loaders
+from data_loader import Phase, create_data_loader
 from utils import parse_arguments, instantiate_model, initialize_loss_and_optimizer, run_epoch
 
 def train_model():
@@ -9,8 +9,10 @@ def train_model():
 
     # Load data
     data_path = "mixed_dataset/"
-    train_dataloader = create_data_loaders(data_path=data_path, batch_size=args.batch_size, phase=Phase.TRAIN)
-    val_dataloader = create_data_loaders(data_path=data_path, batch_size=args.val_batch_size, phase=Phase.VALIDATION)
+    training_strategy = args.training_strategy
+    
+    train_dataloader = create_data_loader(data_path=data_path, batch_size=args.batch_size, phase=Phase.TRAIN,strategy=training_strategy)
+    val_dataloader = create_data_loader(data_path=data_path, batch_size=args.val_batch_size, phase=Phase.VALIDATION,strategy=training_strategy)
 
     dataloader = {'train': train_dataloader, 'val': val_dataloader}
 

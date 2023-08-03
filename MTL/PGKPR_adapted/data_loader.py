@@ -72,17 +72,19 @@ class RandomMetaDataLoader:
             raise StopIteration
 
         # Sample an index using multinomial based on the probabilities
-        selected_loader_idx = torch.multinomial(torch.tensor(list(self.identifier_prob_dict.values())), 1).item()
+        selected_loader_idx_from_dict = torch.multinomial(torch.tensor(list(self.identifier_prob_dict.values())), 1).item()
 
         # Retrieve the identifier associated with the sampled index
-        selected_identifier = list(self.identifier_prob_dict.keys())[selected_loader_idx]
+        selected_identifier = list(self.identifier_prob_dict.keys())[selected_loader_idx_from_dict]
+        #Find index of loader list from selected identifier from dictionary
+        selected_loader_idx = [key for key in self.data_loaders.keys()].index(selected_identifier)
 
         try:
-            batch = next(self.loaders[selected_identifier])
+            batch = next(self.loaders[selected_loader_idx])
         except StopIteration:
             # Reset the iterator for the selected loader if it's exhausted
-            self.loaders[selected_identifier] = iter(self.data_loaders[selected_identifier])
-            batch = next(self.loaders[selected_identifier])
+            self.loaders[selected_loader_idx] = iter(self.data_loaders[selected_identifier])
+            batch = next(self.loaders[selected_loader_idx])
 
         self.num_batches_fetched += 1
         return batch

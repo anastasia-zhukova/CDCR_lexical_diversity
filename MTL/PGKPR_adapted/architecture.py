@@ -315,6 +315,7 @@ class PGKPR(nn.Module):
         
         # Initialize the output tensor with zeros
         x = torch.zeros((dataset_id.shape[0],1))
+        x = x.to(encode_out.device)
         
         # Loop through each unique dataset_id value
         for unique_id in unique_ids:

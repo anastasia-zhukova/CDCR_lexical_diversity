@@ -1,6 +1,7 @@
 import torch
 import sys
 import os
+import random 
 sys.path.append(r'../../CDCR/data')
 from dataset import datasets_config_constants
 
@@ -43,6 +44,19 @@ while True:
     except ValueError:
         print("Invalid input. Please enter a valid integer dataset number.")
 
+# Ask the user if they want to create a small dummy subset of the data
+user_input_subset = input("Do you want to create a small subset of the data for testing purposes? (y/n): ")
+subset_size = None
+
+if user_input_subset.lower() == 'y':
+    subset_size = input("Enter the number of rows for the dummy subset: ")
+    try:
+        subset_size = int(subset_size)
+    except ValueError:
+        print("Invalid input. Subset size should be a positive integer. No sampling will occur.")
+
+
+
 # Initialize empty lists for train, test, and val data
 train_data = [[] for _ in range(len(splits))]
 test_data = [[] for _ in range(len(splits))]
@@ -52,6 +66,10 @@ val_data = [[] for _ in range(len(splits))]
 for i, dataset in enumerate(selected_dataset):
     for j, split in enumerate(splits):
         data_inputs, data_labels, identifier_tensor = load_data_and_labels(dataset, split)
+        if subset_size:
+            sampled_indices = random.sample(range(len(data_inputs)), min(subset_size, len(data_inputs)))
+            data_inputs, data_labels, identifier_tensor = data_inputs[sampled_indices], data_labels[sampled_indices], identifier_tensor[sampled_indices]
+
         if split == "train":
             train_data[j].append((data_inputs, data_labels, identifier_tensor))
         elif split == "test":
@@ -60,7 +78,7 @@ for i, dataset in enumerate(selected_dataset):
             val_data[j].append((data_inputs, data_labels, identifier_tensor))
 
 # Concatenate the lists of tensors into single tensors and save them
-output_directory = "./mixed_dataset"
+output_directory = "./mixed_dataset" if user_input_subset.lower() == 'n' else "./small_mixed_dataset"
 os.makedirs(output_directory, exist_ok=True)
 
 for split, data in zip(splits, [train_data, test_data, val_data]):

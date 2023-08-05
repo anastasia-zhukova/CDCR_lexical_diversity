@@ -1,7 +1,8 @@
 import torch
 import os
 from data_loader import Phase, create_data_loader
-from utils import parse_arguments_train, instantiate_model, initialize_loss_and_optimizer, run_epoch, set_device
+from utils import parse_arguments_train, instantiate_model, initialize_loss_optimizer_scheduler, run_epoch, set_device
+import datetime
 
 def train_model():
     # Initialize parameters
@@ -19,7 +20,7 @@ def train_model():
     # Create model, loss and optimizer
     model = instantiate_model(args)
     model.to(device)
-    loss_function, model_opt= initialize_loss_and_optimizer(model)
+    loss_function, model_opt,scheduler= initialize_loss_optimizer_scheduler(model)
 
     # Run training
 
@@ -28,13 +29,21 @@ def train_model():
     for epoch in range(args.epochs):
         print(f'\nEPOCH {epoch}')
         for phase in ['train', 'val']:
-            is_training= True if phase =='train' else False
-            epoch_loss, f1, acc,_,_ = run_epoch(model,device,args.tqdm_print_step, dataloader[phase], loss_function, model_opt,is_training)
+            
+            epoch_loss, f1, acc,_,_ = run_epoch(model,device,args.tqdm_print_step, dataloader[phase], loss_function, model_opt,scheduler,phase)
 
             if phase == 'val' and (epoch_loss < best_loss or epoch % 10 == 0) and epoch > 5:
                 print("save model")
-                best_loss = epoch_loss
-                torch.save(model.state_dict(), f'{args.model_save_path}/epoch{epoch}_loss_{epoch_loss}_acc_{f1}_acc_{acc}.pkl')
+                best_loss = epoch_loss                
+
+                # Get the current date
+                current_date = datetime.date.today()
+
+                # Format the time-stamp as a string
+                time_stamp = current_date.strftime("%Y-%m-%d")
+
+                model_name =  f'{args.model_save_path}mtl_model_{time_stamp}_dmodel_{args.d_model}_experiment_XX_epoch{epoch}_of_{args.epochs-1}.pkl'
+                torch.save(model.state_dict(),model_name)
 
 if __name__ == "__main__":
     train_model()

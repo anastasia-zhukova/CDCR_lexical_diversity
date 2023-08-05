@@ -1,12 +1,15 @@
 import argparse
 from architecture import PGKPR
 import torch
+
+import torch.optim.lr_scheduler as lr_scheduler
 from data_loader import Phase, Batch
 from tqdm import tqdm
 from sklearn.metrics import f1_score, accuracy_score
 import os
 import pandas as pd
 import numpy as np
+import re
 #Vocabulary utils
 vocab_path = 'mscoco.vocab'
 
@@ -85,10 +88,12 @@ def instantiate_model(args):
 
     
     
-def initialize_loss_and_optimizer(model):
+def initialize_loss_optimizer_scheduler(model):
     loss_function = torch.nn.BCELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, betas=(0.9, 0.98), eps=1e-9)
-    return loss_function, optimizer
+    #optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, betas=(0.9, 0.98), eps=1e-9)
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-4, momentum=0.9, nesterov=True) 
+    scheduler = lr_scheduler.CyclicLR(optimizer, base_lr=1e-4, max_lr=1e-3, step_size_up=1200, mode='exp_range')
+    return loss_function, optimizer, scheduler
 
 def parse_arguments_train():
     parser = argparse.ArgumentParser(description='Train PGKPR model.')
@@ -134,28 +139,30 @@ def run_forward_pass(model, batch):
     predicted_probs = predicted_probs.squeeze()
     return predicted_probs
 
-def run_optimization_step(optimizer, loss):
+def run_optimization_step(optimizer, loss,scheduler):
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
+    scheduler.step()
 
-def run_once(model, batch, loss_function, optimizer, is_training):
+def run_once(model, batch, loss_function, optimizer,scheduler, is_training):
     predicted_probs = run_forward_pass(model, batch)
     loss=None
     if loss_function is not None:
         loss = loss_function(predicted_probs, batch.trg)
     
     if is_training and optimizer is not None:
-        run_optimization_step(optimizer, loss)
+        run_optimization_step(optimizer, loss,scheduler)
 
     return loss,predicted_probs
 
 
 
-def run_epoch(model, device, print_step, data_loader, loss_function, optimizer=None, is_training=True):
+def run_epoch(model, device, print_step, data_loader, loss_function, optimizer=None,scheduler=None, phase="train"):
     total_loss = 0.0
 
     # Set the model in training or evaluation mode based on the 'is_training' flag
+    is_training = True if phase=="train" else False
     model.train() if is_training else model.eval()
 
     with tqdm(total=len(data_loader)) as pbar:
@@ -171,11 +178,11 @@ def run_epoch(model, device, print_step, data_loader, loss_function, optimizer=N
             batch = Batch(src, tgt, dataset_id)
 
             if is_training:
-                binary_loss, predicted_probs = run_once(model, batch, loss_function, optimizer, is_training)
+                binary_loss, predicted_probs = run_once(model, batch, loss_function, optimizer,scheduler, is_training)
             else:
                 # Use torch.no_grad() for validation to disable gradient computation
                 with torch.no_grad():
-                    binary_loss, predicted_probs = run_once(model, batch, loss_function, None, is_training)
+                    binary_loss, predicted_probs = run_once(model, batch, loss_function, None,None, is_training)
 
             batch_prediction = predicted_probs.detach().cpu().numpy()
 
@@ -187,7 +194,8 @@ def run_epoch(model, device, print_step, data_loader, loss_function, optimizer=N
             if i % print_step == 0:
                 pbar.update(print_step)
                 if binary_loss:
-                    pbar.set_description(f'Training loss: {binary_loss:.4f}' if is_training else f'Validation loss: {binary_loss:.4f}')
+                    pbar.set_description(f'{phase.capitalize()} loss: {binary_loss:.4f}')
+
 
     epoch_loss = total_loss / len(data_loader)
     y_true = np.array(y_true)
@@ -196,9 +204,9 @@ def run_epoch(model, device, print_step, data_loader, loss_function, optimizer=N
     f1 = f1_score(y_true, y_pred_binary, average='macro')
     acc = accuracy_score(y_true, y_pred_binary)
 
-    print(f"{'Training' if is_training else 'Validation'} loss: {epoch_loss:.4f}")
-    print(f"{'Training' if is_training else 'Validation'} accuracy: {f1:.4f}")
-    print(f"{'Training' if is_training else 'Validation'} f1: {acc:.4f}")
+    print(f'{phase.capitalize()} loss: {epoch_loss:.4f}')
+    print(f'{phase.capitalize()} accuracy: {f1:.4f}')
+    print(f'{phase.capitalize()} f1: {acc:.4f}')
 
     return epoch_loss, f1, acc, y_true, y_pred
 
@@ -217,3 +225,18 @@ def save_predictions_to_csv(y_true, y_pred, output_folder,model_name):
     # Save the predictions DataFrame to a CSV file
     output_file = os.path.join(output_folder, f'predictions_{model_name}.csv')
     predictions_df.to_csv(output_file, index=False)
+
+
+
+
+def extract_dmodel_from_model_name(model_name):
+    # Use regular expression to extract the value of 'args.d_model'
+    pattern = r'dmodel_(\d+)_'
+    match = re.search(pattern, model_name)
+
+    if match:
+        d_model_value = int(match.group(1))
+        return d_model_value
+    else:
+        print("No match found for d_model in the string.")
+        return -1

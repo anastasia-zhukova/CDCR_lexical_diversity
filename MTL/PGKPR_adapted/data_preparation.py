@@ -64,7 +64,11 @@ def save_tensors_with_key(key_index):
 
 if __name__ == "__main__":
     print("Available datasets:")
-    keys = list(datasets_config_constants.keys())
+    #Add paraphrase identification datasets:
+    datasets_config_constants_with_pi = datasets_config_constants
+    datasets_config_constants_with_pi["HoW"] = "../../PI/data/HoW/HoW_DatasetDict/"
+    print(datasets_config_constants_with_pi.keys())
+    keys = list(datasets_config_constants_with_pi.keys())
     for i, key in enumerate(keys):
         print(f"{i}: {key}")
     

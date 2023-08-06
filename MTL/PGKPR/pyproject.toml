@@ -19,6 +19,9 @@ dvc-gdrive = "^2.19.2"
 protobuf = "3.20.0"
 pydrive2 = "1.16.0"
 rouge = "^1.0.1"
+pyarrow = "^12.0.1"
+openpyxl = "^3.1.2"
+datasets = "^2.14.3"
 
 
 [build-system]

@@ -7,7 +7,7 @@
       "_type": "Value"
     },
     "label": {
-      "dtype": "int64",
+      "dtype": "int32",
       "_type": "Value"
     },
     "sentence1": {

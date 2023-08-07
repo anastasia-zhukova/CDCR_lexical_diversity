@@ -1,54 +1,97 @@
 import pandas as pd
 import torch
-from utils import loadVocab, START_TAG, END_TAG, UNK_TAG, vocab_path
+from utils import loadVocab, START_TAG,SEP_TAG, END_TAG, UNK_TAG, vocab_path, add_pi_datasets_to_config_dict
 import os
+from datasets import DatasetDict, load_dataset #Huggingface library
+
+from tokenizer import tokenizer 
 # Import dataset module from CDCR folder
 import sys
 sys.path.append(r'../../CDCR/data')
 
 from dataset import CrossEncoderDatasetFull, datasets_config_constants
 
-# Modification of the original load_text_con method. Adds start and end tags
-def load_text_con(cdcr_dataset_split, max_rows=None):
-    if max_rows is None:
-        max_rows = len(cdcr_dataset_split.instances)
+
+#Add paraphrase identification datasets:
+datasets_config_constants_with_pi = add_pi_datasets_to_config_dict(datasets_config_constants)
+
+def encode_in_small_batches(full_batch):
+    # Define the batch size for encoding (adjust as needed)
+    batch_size = 10000
+
+    # Initialize an empty list to store encoded tensors
+    encoded_ids = []
+
+    # Loop through the big batch in smaller chunks
+    for i in range(0, len(full_batch), batch_size):
+        print(f"encoding_subatch {i/batch_size} out of {len(full_batch)/batch_size}")
+        # Get the current batch of sentences
+        current_batch = full_batch[i:i + batch_size]
+
+        # Encode the current batch
+        current_encoded_batch = tokenizer.encode_batch(current_batch)
+        current_encoded_batch_ids = [encoded.ids for encoded in current_encoded_batch]
+        # Append the encoded tensors to the list
+        encoded_ids.extend(current_encoded_batch_ids)
     
-    # Load CDCR data
-    inputs = [[START_TAG] + x.strip().split(" ") + [END_TAG] for x in cdcr_dataset_split.instances[0:max_rows]] 
-    # I could add this to the CDCR processing. There is unnecessary overhead
+    return torch.tensor(encoded_ids)
     
-    labels = cdcr_dataset_split.labels[0:max_rows]
+def tokenize_inputs(dataset_split,task, max_rows=None):
 
-    return inputs, labels
+    if task=="CDCR":
+        if max_rows is None:
+            max_rows = len(dataset_split.instances)
+        
+        # Get the input_ids from each Encoding object and stack them as a tensor
+        input_ids_tensor = encode_in_small_batches(dataset_split.instances[0:max_rows])
+        labels = dataset_split.labels[0:max_rows]
 
-def load_data_tensor_con(cdcr_dataset, max_rows, vocabPath, maxlen=300):
-    # maxlen set to 300 until I incorporate more context
-    token2idx, _ = loadVocab(vocabPath)
+    elif task=="PI":
+        paired_sentences = [(sent1, sent2) for sent1, sent2 in zip(dataset_split["sentence1"], dataset_split["sentence2"])]
+        
+        if max_rows is None:
+            max_rows = len(paired_sentences)
 
-    tokenized_inputs = []
-    inputs, labels = load_text_con(cdcr_dataset, max_rows)
-    padded_length = maxlen
-    for x in inputs:
-        x = [token2idx.get(t, token2idx[UNK_TAG]) for t in x]  # Fills with Unknown tag value if token not found
-        x = x + [0] * (padded_length - len(x)) 
+        input_ids_tensor = encode_in_small_batches(paired_sentences[0:max_rows])
+        labels = dataset_split["label"][0:max_rows]
+        
+    return input_ids_tensor, labels
 
-        tokenized_inputs.append(x)
-    return torch.tensor(tokenized_inputs), labels
+
 
 def save_tensors_with_key(key_index):
-    keys = list(datasets_config_constants.keys())
+    keys = list(datasets_config_constants_with_pi.keys())
     key = keys[key_index]
-    dataset_config = datasets_config_constants[key]
+    dataset_config = datasets_config_constants_with_pi[key]
+    #HoW processing:
+    if key in ["HOW","MRPC"]:
+        
+        if key=="HOW":
+            dataset_dict = DatasetDict.load_from_disk(dataset_config)
+        else:
+            dataset_dict = load_dataset('glue', dataset_config)
 
-    # Create the 3 splits
-    train_data = CrossEncoderDatasetFull(config=dataset_config, split_name='train')
-    test_data = CrossEncoderDatasetFull(config=dataset_config, split_name='test')
-    val_data = CrossEncoderDatasetFull(config=dataset_config, split_name='val')
+        train_data= dataset_dict["train"]
+        test_data= dataset_dict["test"]
+        val_data= dataset_dict["validation"]
+
+        task="PI"
+    else:
+
+        # Create the 3 splits
+        train_data = CrossEncoderDatasetFull(config=dataset_config, split_name='train')
+        test_data = CrossEncoderDatasetFull(config=dataset_config, split_name='test')
+        val_data = CrossEncoderDatasetFull(config=dataset_config, split_name='val')
+
+        task="CDCR"
 
     # Load and save the tensors
-    train_inputs, train_labels = load_data_tensor_con(cdcr_dataset=train_data, max_rows=None, vocabPath=vocab_path)
-    test_inputs, test_labels = load_data_tensor_con(cdcr_dataset=test_data, max_rows=None, vocabPath=vocab_path)
-    val_inputs, val_labels = load_data_tensor_con(cdcr_dataset=val_data, max_rows=None, vocabPath=vocab_path)
+    print("processing train")
+    train_inputs, train_labels = tokenize_inputs(dataset_split=train_data,task=task, max_rows=None)
+    print("processing test")
+    test_inputs, test_labels = tokenize_inputs(dataset_split=test_data,task=task, max_rows=None)
+    print("processing validation")
+    val_inputs, val_labels = tokenize_inputs(dataset_split=val_data, task=task,max_rows=None)
 
     folder = "individual_datasets"
     os.makedirs(folder, exist_ok=True)
@@ -64,10 +107,7 @@ def save_tensors_with_key(key_index):
 
 if __name__ == "__main__":
     print("Available datasets:")
-    #Add paraphrase identification datasets:
-    datasets_config_constants_with_pi = datasets_config_constants
-    datasets_config_constants_with_pi["HoW"] = "../../PI/data/HoW/HoW_DatasetDict/"
-    print(datasets_config_constants_with_pi.keys())
+
     keys = list(datasets_config_constants_with_pi.keys())
     for i, key in enumerate(keys):
         print(f"{i}: {key}")
@@ -81,5 +121,8 @@ if __name__ == "__main__":
                 break
             else:
                 print("Invalid input. Please choose a valid integer from the list above.")
+        except Exception as e:
+            print(f"An error occurred: {e}")
         except ValueError:
             print("Invalid input. Please enter an integer.")
+

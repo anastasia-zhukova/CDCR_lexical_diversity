@@ -14,13 +14,19 @@ def train_model():
 
     dataloader = {'train': train_dataloader, 'val': val_dataloader}
 
+
+ 
     # Set device
     device = set_device(args)
+
+    #Set weights for imbalance:
+    pos_weight = torch.tensor([5.0])
+    pos_weight = pos_weight.to(device)
 
     # Create model, loss and optimizer
     model = instantiate_model(args)
     model.to(device)
-    loss_function, model_opt,scheduler= initialize_loss_optimizer_scheduler(model)
+    loss_function, model_opt,scheduler= initialize_loss_optimizer_scheduler(model,pos_weight)
 
     # Run training
 

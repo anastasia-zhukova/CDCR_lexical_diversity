@@ -260,13 +260,13 @@ class BinaryClassifier(nn.Module):
         super(BinaryClassifier, self).__init__()
         self.prediction_head = BertPredictionHeadTransform(hidden_size, layer_norm_eps=layer_norm_eps)
         self.fc = nn.Linear(hidden_size, 1)
-        self.sigmoid = nn.Sigmoid()
+        self.sigmoid = nn.Sigmoid() 
 
     def forward(self,final_encoder_layer):
         transformed_states = self.prediction_head(final_encoder_layer)
         first_token_hidden_state = transformed_states[:, 0, :] #Takes special token /s
         output = self.fc(first_token_hidden_state)
-        output = self.sigmoid(output)
+        #output = self.sigmoid(output) #don't need to apply when using BCEWithLOgitsLoss
         return output
     
 
@@ -324,7 +324,7 @@ class PGKPR(nn.Module):
             data_current = encode_out[mask_current]
             
             # Apply the corresponding decoder based on the condition
-            if unique_id >= 12: #12: MRPC; 13:HoW
+            if unique_id >= 12: #12: HoW; 13:MRPC
                 decoded_output_current = self.decode_pi(data_current)
             else: #0: ECBPLUS_ENTITY_CONFIG;#1: ECBPLUS_EVENT_CONFIG;
                 #2: FCC_EVENT_CONFIG;#3: FCC_T_ENTITY_CONFIG;

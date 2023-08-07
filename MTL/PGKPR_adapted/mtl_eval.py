@@ -29,8 +29,9 @@ def evaluate_model():
     model.to(device)
 
     _, f1, acc, y_true, y_pred = run_epoch(model,device,args.tqdm_print_step, test_dataloader, loss_function= None,optimizer=None,scheduler=None,phase= "test")
+    y_pred_binary = (y_pred> 0.5).astype(int)
     model_name_with_metrics = f"{args.model_name},acc_{acc}_f1{f1}"
-    save_predictions_to_csv(y_true, y_pred, "predictions",model_name_with_metrics)
+    save_predictions_to_csv(y_true, y_pred_binary,y_pred, "predictions",model_name_with_metrics)
 
 if __name__ == "__main__":
     evaluate_model()

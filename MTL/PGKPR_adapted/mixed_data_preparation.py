@@ -2,10 +2,14 @@ import torch
 import sys
 import os
 import random 
+from utils import add_pi_datasets_to_config_dict
 sys.path.append(r'../../CDCR/data')
 from dataset import datasets_config_constants
 
-keys = list(datasets_config_constants.keys())
+
+datasets_config_constants_with_pi = add_pi_datasets_to_config_dict(datasets_config_constants)
+
+keys = list(datasets_config_constants_with_pi.keys())
 
 dict_experiments = {
     0: ['ECBPLUS_ENTITY_CONFIG', 'NIDENT_ENTITY_CONFIG'],

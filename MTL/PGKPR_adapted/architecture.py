@@ -222,11 +222,17 @@ class Generator(nn.Module):
 class Embeddings(nn.Module):
     def __init__(self, d_model, vocab):
         super(Embeddings, self).__init__()
-        self.lut = nn.Embedding(vocab, d_model)
+        
+        self.lut = nn.Embedding(vocab, d_model,padding_idx=0)
+        
         self.d_model = d_model
 
     def forward(self, x):
-        return self.lut(x) * math.sqrt(self.d_model)
+        embed_output = self.lut(x)
+        sqrt_d_model = math.sqrt(self.d_model)
+        output = embed_output * sqrt_d_model
+        
+        return output
     
 class PositionalEncoding(nn.Module):
     "Implement the PE function."
@@ -292,9 +298,7 @@ class PGKPR(nn.Module):
         self.parameters_init()
 
     def encode(self, src, src_mask):
-
         embedding = self.src_embed_pos(src)
-        
         return self.encoder(embedding, src_mask)
 
     def decode_cdcr(self, final_encoder_layer):

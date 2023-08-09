@@ -41,7 +41,7 @@ python -m torch.utils.collect_env
 nvcc -V
 
 # Run the script:
-python -u mtl_train.py --batch_size 128 --val_batch_size 128 --epochs 10 --tqdm_print_step 10 --training_strategy simultaneous
+python -u mtl_train.py --batch_size 256 --val_batch_size 256 --epochs 12 --tqdm_print_step 10 --training_strategy simultaneous
 
 # Run the script with logger:
 #python -u train_with_logger.py -l ~/${SLURM_JOB_NAME}_${SLURM_JOB_ID}  -t True -p True -d True -s True -f True

@@ -1,6 +1,6 @@
 import pandas as pd
 import torch
-from utils import loadVocab, START_TAG,SEP_TAG, END_TAG, UNK_TAG, vocab_path, add_pi_datasets_to_config_dict
+from utils import START_TAG,SEP_TAG, END_TAG, UNK_TAG, add_pi_datasets_to_config_dict
 import os
 from datasets import DatasetDict, load_dataset #Huggingface library
 

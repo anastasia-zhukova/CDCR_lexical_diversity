@@ -37,7 +37,7 @@ while True:
     print("Choose a dataset:")
     for key, datasets in dict_experiments.items():
         print(f"{key}: {datasets}")
-    user_choice = input("Enter the dataset number: ")
+    user_choice = input("Enter the experiment number: ")
     try:
         user_choice = int(user_choice)
         if user_choice in dict_experiments:
@@ -66,6 +66,7 @@ train_data = [[] for _ in range(len(splits))]
 test_data = [[] for _ in range(len(splits))]
 val_data = [[] for _ in range(len(splits))]
 
+max_nonzero_column_index_overall = 0
 # Load data for each dataset and split, and collect them in corresponding lists
 for i, dataset in enumerate(selected_dataset):
     for j, split in enumerate(splits):
@@ -74,6 +75,9 @@ for i, dataset in enumerate(selected_dataset):
             sampled_indices = random.sample(range(len(data_inputs)), min(subset_size, len(data_inputs)))
             data_inputs, data_labels, identifier_tensor = data_inputs[sampled_indices], data_labels[sampled_indices], identifier_tensor[sampled_indices]
 
+        max_nonzero_column_index = (data_inputs != 0).any(axis=0).sum()
+        if max_nonzero_column_index>max_nonzero_column_index_overall:
+            max_nonzero_column_index_overall=max_nonzero_column_index
         if split == "train":
             train_data[j].append((data_inputs, data_labels, identifier_tensor))
         elif split == "test":
@@ -96,10 +100,13 @@ for split, data in zip(splits, [train_data, test_data, val_data]):
     inputs, labels, identifiers = zip(*data)
 
     # Concatenate the tensors
-    concatenated_inputs = torch.cat(inputs)
+
+    concatenated_inputs = torch.cat(inputs)[:, :max_nonzero_column_index_overall]
     concatenated_labels = torch.cat(labels)
     concatenated_identifiers = torch.cat(identifiers)
 
+    #Verify column index of latest pad:
+    
     # Print the shapes before saving
     print(f"{split} - inputs shape: {concatenated_inputs.shape}")
     print(f"{split} - labels shape: {concatenated_labels.shape}")

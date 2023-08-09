@@ -196,7 +196,8 @@ def run_epoch(model, device, print_step, data_loader, loss_function, optimizer=N
     y_true = np.array(y_true)
     y_pred = np.array(y_pred)
     y_pred_binary = (y_pred> 0.5).astype(int)
-    f1 = f1_score(y_true, y_pred_binary, average='macro')
+
+    f1 = f1_score(y_true, y_pred_binary, average='weighted')
     acc = accuracy_score(y_true, y_pred_binary)
 
     print(f'{phase.capitalize()} loss: {epoch_loss:.4f}')

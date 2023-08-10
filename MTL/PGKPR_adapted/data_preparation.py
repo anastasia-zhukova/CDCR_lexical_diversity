@@ -3,6 +3,7 @@ import torch
 from utils import START_TAG,SEP_TAG, END_TAG, UNK_TAG, add_pi_datasets_to_config_dict
 import os
 from datasets import DatasetDict, load_dataset #Huggingface library
+import traceback
 
 from tokenizer import tokenizer 
 # Import dataset module from CDCR folder
@@ -54,7 +55,9 @@ def tokenize_inputs(dataset_split,task, max_rows=None):
 
         input_ids_tensor = encode_in_small_batches(paired_sentences[0:max_rows])
         labels = dataset_split["label"][0:max_rows]
-        
+        labels = torch.Tensor(labels)
+    print("object type of inputs",type(input_ids_tensor))
+    print("object type of labels",type(labels))
     return input_ids_tensor, labels
 
 
@@ -123,6 +126,7 @@ if __name__ == "__main__":
                 print("Invalid input. Please choose a valid integer from the list above.")
         except Exception as e:
             print(f"An error occurred: {e}")
+            traceback.print_exc()
         except ValueError:
             print("Invalid input. Please enter an integer.")
 

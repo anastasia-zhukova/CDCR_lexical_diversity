@@ -29,7 +29,7 @@ def read_conll_file(filename):
     current_document_id = ''
     current_document_list = []
     dict_documents = {}
-    with open(filename, 'r') as file:
+    with open(filename, 'r', encoding='utf-8') as file:
         for line in file:
             line = line.strip()
             
@@ -201,6 +201,7 @@ class CrossEncoderDatasetFull(data.Dataset):
         start_idx = token_ids.index(min(mention['tokens_number'])) #tokens_ids replaced by tokens_numbers
         end_idx = token_ids.index(max(mention['tokens_number'])) + 1
 
+        # x[2] is the token string
         mention_repr = [x[2] for x in tokens[:start_idx]] + ["[START]"] \
                        + [x[2] for x in tokens[start_idx:end_idx]] + ["[END]"] \
                        + [x[2] for x in tokens[end_idx:]]

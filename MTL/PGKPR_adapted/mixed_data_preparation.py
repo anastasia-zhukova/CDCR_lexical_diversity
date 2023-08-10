@@ -12,8 +12,11 @@ datasets_config_constants_with_pi = add_pi_datasets_to_config_dict(datasets_conf
 keys = list(datasets_config_constants_with_pi.keys())
 
 dict_experiments = {
-    0: ['ECBPLUS_ENTITY_CONFIG', 'NIDENT_ENTITY_CONFIG'],
-    1: ['ECBPLUS_EVENT_CONFIG', 'GVC_EVENT_CONFIG']
+
+    0: ['MRPC'],
+    1: ['ECBPLUS_ENTITY_CONFIG','ECBPLUS_EVENT_CONFIG'],
+    2: ['ECBPLUS_ENTITY_CONFIG', 'NIDENT_ENTITY_CONFIG'],
+    3: ['ECBPLUS_EVENT_CONFIG', 'GVC_EVENT_CONFIG']
 }
 
 # Function to load data and labels for a given split
@@ -26,6 +29,7 @@ def load_data_and_labels(dataset, split):
 
     data_inputs, data_labels = torch.load(data_path), torch.load(label_path)
     print(f"source {dataset}, {split}, shape {data_inputs.shape}")
+    print('type of data labels',type(data_labels))
     identifier_tensor = torch.full_like(data_labels, keys.index(dataset))
     return data_inputs, data_labels, identifier_tensor
 

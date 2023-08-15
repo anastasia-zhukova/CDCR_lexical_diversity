@@ -9,7 +9,7 @@
   "embedding_dimension": 20,
 
   "max_mention_span": 10,
-  "mention_type": "events",
+  "mention_type": "mixed",
   "subtopic": true,
   "segment_window": 512,
   "exact": false,

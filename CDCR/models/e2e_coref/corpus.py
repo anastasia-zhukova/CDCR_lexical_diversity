@@ -98,8 +98,7 @@ class Corpus:
 
             current_token = end_token + 1
             segments.append(current_token)
-        print("length bert tokens:",len(bert_tokens))
-        print("segments:",segments)
+
         return segments
 
 
@@ -118,7 +117,6 @@ class Corpus:
             original_tokens = []
             alignment = []
             bert_cursor = -1
-            print(f'prior to bert tokens there are {len(tokens)}') 
             for i, token in enumerate(tokens):
                 sent_id, token_id, token_text, flag_sentence = token
                 bert_token = tokenizer.encode(token_text, add_special_tokens=True)[1:-1]
@@ -134,15 +132,14 @@ class Corpus:
                     bert_sentence_ids.extend([sent_id] * len(bert_token))
                     alignment.extend([token_id] * len(bert_token))
 
-            print('length bert token ids',len(bert_tokens_ids))
+
             segments = self.split_doc_into_segments(bert_tokens_ids, bert_sentence_ids)
-            print(f'segment contains {len(segments)} elements')
-            print('the second element is:',segments[1])
+
             ids = [x[1] for x in original_tokens]
             bert_segments, original_segments, start_end_segment = [], [], []
             delta = 0
-
             for start, end in zip(segments, segments[1:]):
+
                 original_start = ids.index(alignment[start])
                 original_end = ids.index(alignment[end - 1])
 
@@ -150,11 +147,14 @@ class Corpus:
                 bert_end = np.array(end_bert_idx[original_start:original_end + 1]) - delta
 
                 original_segments.append(original_tokens[original_start:original_end + 1])
-                text_to_encode = ' '.join([x[2] for x in original_tokens[original_start:original_end + 1]])
+                #x[2] is the token text
+                text_to_encode = ''.join([x[2] for x in original_tokens[original_start:original_end + 1]])
 
-                bert_ids = tokenizer.encode(text_to_encode,
-                                            add_special_tokens=True)[1:-1]
-                print('ver los 173 bert ids:',bert_ids)
+                # bert_ids = tokenizer.encode(text_to_encode,
+                #                             add_special_tokens=True)[1:-1]
+                # use the previously calculated encoding per token instead of encoding the concatenated text
+                bert_ids = bert_tokens_ids[start:end]
+
                 if len(bert_ids) != (end - start):
                     raise Exception(doc_id, start, end, len(bert_ids), (end - start))
 

@@ -2749,6 +2749,22 @@ files = [
 ]
 
 [[package]]
+name = "pyhocon"
+version = "0.3.60"
+description = "HOCON parser for Python"
+optional = false
+python-versions = "*"
+files = [
+    {file = "pyhocon-0.3.60.tar.gz", hash = "sha256:ea18520ea126981e5320a72281f1a5fef2c27923f70cc54e1bd241c26525fd4b"},
+]
+
+[package.dependencies]
+pyparsing = {version = ">=2,<4", markers = "python_version >= \"3.0\""}
+
+[package.extras]
+duration = ["python-dateutil (>=2.8.0)"]
+
+[[package]]
 name = "pyopenssl"
 version = "23.2.0"
 description = "Python wrapper module around the OpenSSL library"
@@ -4037,4 +4053,4 @@ testing = ["big-O", "flake8 (<5)", "jaraco.functools", "jaraco.itertools", "more
 [metadata]
 lock-version = "2.0"
 python-versions = "3.8.16"
-content-hash = "5b3e402b2a316388edd069318543e1cc4152cacb1356b8ed79d148a365c334e3"
+content-hash = "f1d4c600c1b6d8b678f4270f26de6a262d02a2df7ed171b1bfcf395e0bdfbce2"

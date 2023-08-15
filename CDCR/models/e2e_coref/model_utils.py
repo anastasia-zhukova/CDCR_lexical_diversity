@@ -12,11 +12,12 @@ def pad_and_read_bert(bert_token_ids, bert_model):
         raise ValueError('Error! Segment too long!')
 
     device = bert_model.device
+
     docs = torch.tensor([doc + [0] * (max_length - len(doc)) for doc in bert_token_ids], device=device)
     attention_masks = torch.tensor([[1] * len(doc) + [0] * (max_length - len(doc)) for doc in bert_token_ids], device=device)
     with torch.no_grad():
-        embeddings, _ = bert_model(docs, attention_masks)
-
+        output = bert_model(docs, attention_masks)
+        embeddings = output.last_hidden_state
     return embeddings, length
 
 

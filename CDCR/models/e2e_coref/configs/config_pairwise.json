@@ -9,10 +9,10 @@
   "embedding_dimension": 20,
 
   "max_mention_span": 10,
-  "use_gold_mentions": false,
-  "mention_type": "events",
+  "use_gold_mentions": true,
+  "mention_type": "mixed",
   "top_k": 0.25,
-  "training_method": "e2e",
+  "training_method": "pipeline",
   "subtopic": true,
   "use_predicted_topics": false,
   "segment": true,

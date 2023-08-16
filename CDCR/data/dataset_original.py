@@ -40,7 +40,7 @@ class CrossEncoderDatasetInstances(data.Dataset):
 
 class CrossEncoderDatasetFull(data.Dataset):
     def __init__(self, config, split_name, same_lemma=False):
-        # self.corpus = corpuss
+        # self.corpus = corpus
         # self.documents = corpus.documents
         # self.mentions = corpus.mentions
 
@@ -75,7 +75,7 @@ class CrossEncoderDatasetFull(data.Dataset):
         self.second = torch.tensor(self.second)
         self.labels = torch.tensor(self.labels, dtype=torch.float)
 
-        #Don't know why they do this
+
         if same_lemma:
             idx = (self.lemmas[self.first] == self.lemmas[self.second]).nonzero()
             self.first = self.first[idx]
@@ -117,7 +117,7 @@ class CrossEncoderDatasetFull(data.Dataset):
     def encode_mention_with_context(self, mention):
         doc_id, sentence_id = mention['doc_id'], int(mention['sentence_id'])
         tokens = self.doc_dict[doc_id][sentence_id]
-        #I suppose this tokens are the tokens of the whole sentence
+
         token_ids = [x[0] for x in tokens]
 
         start_idx = token_ids.index(min(mention['tokens_ids']))
@@ -126,12 +126,7 @@ class CrossEncoderDatasetFull(data.Dataset):
         mention_repr = [x[2] for x in tokens[:start_idx]] + ["[START]"] \
                        + [x[2] for x in tokens[start_idx:end_idx]] + ["[END]"] \
                        + [x[2] for x in tokens[end_idx:]]
-        #Then the context would be: 'Tara', 'Reid', 'has', 'entered', 'a', 'rehab', 'program', '.'
-        #In that example, if the mention is entered, then it takes all the tokens from the sentence
-        # prior the mention and those after:
-        # [tara] [Reid] [has] [START] [entered] [END] [a] [rehab] [program] 
-        # But already with token encoding
-        # [1] [20] [30] ....
+
         return ' '.join(mention_repr)
 
 
@@ -143,8 +138,7 @@ class CrossEncoderDatasetFull(data.Dataset):
         mentions_repr = np.asarray([self.encode_mention_with_context(m) for m in mentions])
         instances = [' '.join([mentions_repr[first[i]], "[SEP]",
                                     mentions_repr[second[i]], "[SEP]"]) for i in range(len(first))]
-        # Then it turns it into:
-        # [1] [ 30] [20] ... [999 (SEP)] [25] [10] [999]...
+
         return instances
 
 
@@ -181,3 +175,4 @@ class CrossEncoderDatasetTopic(data.Dataset):
 
     def __getitem__(self, index):
         return self.instances[index]
+    

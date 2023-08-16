@@ -24,6 +24,7 @@ if __name__ == '__main__':
 
     fix_seed(config)
     logger = create_logger(config, create_file=True)
+    logger.setLevel(logging.INFO)
     logger.info(pyhocon.HOCONConverter.convert(config, "hocon"))
     create_folder(config.model_path)
 
@@ -39,15 +40,15 @@ if __name__ == '__main__':
 
     ## Models' initiation
     logger.info('Init models')
-    span_repr = SpanEmbedder(config, device).to(device)
-    span_scorer = SpanScorer(config).to(device)
+    # span_repr = SpanEmbedder(config, device).to(device)
+    # span_scorer = SpanScorer(config).to(device)
     cross_encoder_single = FullCrossEncoder(config).to(device)
     cross_encoder = torch.nn.DataParallel(cross_encoder_single, device_ids=device_ids)
 
 
-    if config.training_method in ('pipeline', 'continue') and not config.use_gold_mentions:
-        span_repr.load_state_dict(torch.load(config.span_repr_path, map_location=device))
-        span_scorer.load_state_dict(torch.load(config.span_scorer_path, map_location=device))
+    # if config.training_method in ('pipeline', 'continue') and not config.use_gold_mentions:
+    #     span_repr.load_state_dict(torch.load(config.span_repr_path, map_location=device))
+    #     span_scorer.load_state_dict(torch.load(config.span_scorer_path, map_location=device))
 
 
     ## Optimizer and loss function
@@ -56,8 +57,8 @@ if __name__ == '__main__':
     scheduler = get_scheduler(optimizer, total_steps=config.epochs * len(train_loader))
 
 
-    logger.info('Number of parameters of mention extractor: {}'.format(
-        count_parameters(span_repr) + count_parameters(span_scorer)))
+    # logger.info('Number of parameters of mention extractor: {}'.format(
+    #     count_parameters(span_repr) + count_parameters(span_scorer)))
     logger.info('Number of parameters of the pairwise classifier: {}'.format(
         count_parameters(cross_encoder)))
 

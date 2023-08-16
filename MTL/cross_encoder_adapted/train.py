@@ -17,21 +17,54 @@ from utils import *
 
 
 if __name__ == '__main__':
+    #Read config_paiwise.json file and config_datasets.json file
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default='configs/config_pairwise.json')
+    parser.add_argument('--dataset_config', type=str, default='configs/config_datasets.json')
     args = parser.parse_args()
     config = pyhocon.ConfigFactory.parse_file(args.config)
+    datasets_config = pyhocon.ConfigFactory.parse_file(args.dataset_config)
 
+    #Set data paths according to the common_data_folder path in the config_datasets file
+    common_data_folder = datasets_config.get_string("common_data_folder")
+    for key in datasets_config:
+        if isinstance(datasets_config[key], dict) and "data_folder" in datasets_config[key]:
+            datasets_config[key]["data_folder"] = datasets_config[key]["data_folder"].replace("${common_data_folder}", common_data_folder)
+
+ 
+
+    #Initialize logger and model path
     fix_seed(config)
     logger = create_logger(config, create_file=True)
     logger.setLevel(logging.INFO)
     logger.info(pyhocon.HOCONConverter.convert(config, "hocon"))
     create_folder(config.model_path)
 
+    #Load config_datasets.json file
+    datasets_config = pyhocon.ConfigFactory.parse_file('configs/config_datasets.json')
+    common_data_folder = datasets_config.get_string("common_data_folder")
+    for key in datasets_config:
+        if isinstance(datasets_config[key], dict) and "data_folder" in datasets_config[key]:
+            datasets_config[key]["data_folder"] = datasets_config[key]["data_folder"].replace("${common_data_folder}", common_data_folder)
+
+
     # init train and dev set
     train = CrossEncoderDatasetFull(config, 'train')
+    train.create_mention_pairs_by_topics()
+    train.negative_sampling()
+    train.prepare_pair_of_mentions(mentions=train.mentions, first=train.first, second=train.second)
+
     train_loader = data.DataLoader(train, batch_size=config.batch_size, shuffle=True)
     dev = CrossEncoderDatasetFull(config, 'val')
+    #TODO modify topics according to clustering
+    #get curent mentions
+    current_mentions = dev.mentions
+    #Method to assign new topics to mentions
+    modified_mentions = current_mentions #Temporary
+    dev.assign_mentions_with_new_topics(modified_mentions)
+    dev.create_mention_pairs_by_topics()
+    dev.prepare_pair_of_mentions( mentions=dev.mentions, first=dev.first, second=dev.second)
+
     dev_loader = data.DataLoader(dev, batch_size=config.batch_size, shuffle=False)
 
     device_ids = config.gpu_num

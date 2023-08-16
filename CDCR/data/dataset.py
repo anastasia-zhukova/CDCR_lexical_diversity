@@ -96,17 +96,37 @@ class CrossEncoderDatasetFull(data.Dataset):
         self.coreference_labels = torch.tensor([generate_unique_hash(m['coref_chain']) for m in self.mentions])
         self.doc_dict = self.make_dict_of_sentences(self.documents)
 
-
+        #Initialize mentions by topics list and pairs lists
         self.mentions_by_topics = collections.defaultdict(list)
-        for i, m in enumerate(self.mentions):
-            self.mentions_by_topics[m['topic']].append(i)
-
-        print('topics keys',self.mentions_by_topics.keys())
         self.first = []
         self.second = []
         self.labels = []
+
+
+
+        print('topics keys',self.mentions_by_topics.keys())
+
         
-        for topic, mentions in self.mentions_by_topics.items():
+        #Don't know why they do this
+        # if same_lemma:
+        #     idx = (self.lemmas[self.first] == self.lemmas[self.second]).nonzero()
+        #     self.first = self.first[idx]
+        #     self.second = self.second[idx]
+        #     self.labels = self.labels[idx]
+
+
+        #Call this during data creation
+        # self.instances = self.prepare_pair_of_mentions(self.mentions, self.first,
+        #                                                self.second)
+
+    def assign_mentions_with_new_topics(self, modified_mentions):
+        self.mentions = modified_mentions
+
+    def create_mention_pairs_by_topics(self):
+        for i, m in enumerate(self.mentions):
+            self.mentions_by_topics[m['topic']].append(i)
+
+        for _, mentions in self.mentions_by_topics.items():
             first, second = zip(*list(combinations(range(len(mentions)), 2)))
             mentions = torch.tensor(mentions)
             first, second = torch.tensor(first), torch.tensor(second)
@@ -123,13 +143,10 @@ class CrossEncoderDatasetFull(data.Dataset):
         self.second = torch.cat(self.second)
         self.labels = torch.cat(self.labels)
 
-        print('first',self.first.shape)
-        print('second',self.second.shape)
-        print('labels',self.labels.shape)
 
+    def negative_sampling(self):
         # Downsample the number of negative examples following a 1:5 proportion 
         # https://github.com/ariecattan/coref/blob/master/train_pairwise_scorer.py
-        # I will leave it for now like this for any split, but I have to adjust for test
         positives = torch.nonzero(self.labels == 1).squeeze()
         positive_ratio = len(positives) / len(self.first)
         negatives = torch.nonzero(self.labels != 1).squeeze()
@@ -143,20 +160,8 @@ class CrossEncoderDatasetFull(data.Dataset):
 
         self.first, self.second, self.labels = new_first, new_second, new_labels
 
-        #Don't know why they do this
-        # if same_lemma:
-        #     idx = (self.lemmas[self.first] == self.lemmas[self.second]).nonzero()
-        #     self.first = self.first[idx]
-        #     self.second = self.second[idx]
-        #     self.labels = self.labels[idx]
 
-
-
-        self.instances = self.prepare_pair_of_mentions(self.mentions, self.first,
-                                                       self.second)
-
-
-
+        
     def read_files(self, config,split_name):
         docs_path = os.path.join(config.data_folder + split_name +'/','dataset.conll')
         mentions_path = os.path.join(config.data_folder+ split_name +'/','{}.json'.format(config.mention_type))

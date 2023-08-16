@@ -96,17 +96,36 @@ class CrossEncoderDatasetFull(data.Dataset):
         self.coreference_labels = torch.tensor([generate_unique_hash(m['coref_chain']) for m in self.mentions])
         self.doc_dict = self.make_dict_of_sentences(self.documents)
 
-
+        #Initialize mentions by topics list and pairs lists
         self.mentions_by_topics = collections.defaultdict(list)
-        for i, m in enumerate(self.mentions):
-            self.mentions_by_topics[m['topic']].append(i)
-
-        print('topics keys',self.mentions_by_topics.keys())
         self.first = []
         self.second = []
         self.labels = []
+
+
+
+        print('topics keys',self.mentions_by_topics.keys())
+
         
-        for topic, mentions in self.mentions_by_topics.items():
+        #Don't know why they do this
+        # if same_lemma:
+        #     idx = (self.lemmas[self.first] == self.lemmas[self.second]).nonzero()
+        #     self.first = self.first[idx]
+        #     self.second = self.second[idx]
+        #     self.labels = self.labels[idx]
+
+
+        #Call this during data creation
+        self.instances = []
+
+    def assign_mentions_with_new_topics(self, modified_mentions):
+        self.mentions = modified_mentions
+
+    def create_mention_pairs_by_topics(self):
+        for i, m in enumerate(self.mentions):
+            self.mentions_by_topics[m['topic']].append(i)
+
+        for _, mentions in self.mentions_by_topics.items():
             first, second = zip(*list(combinations(range(len(mentions)), 2)))
             mentions = torch.tensor(mentions)
             first, second = torch.tensor(first), torch.tensor(second)
@@ -123,13 +142,10 @@ class CrossEncoderDatasetFull(data.Dataset):
         self.second = torch.cat(self.second)
         self.labels = torch.cat(self.labels)
 
-        print('first',self.first.shape)
-        print('second',self.second.shape)
-        print('labels',self.labels.shape)
 
+    def negative_sampling(self):
         # Downsample the number of negative examples following a 1:5 proportion 
         # https://github.com/ariecattan/coref/blob/master/train_pairwise_scorer.py
-        # I will leave it for now like this for any split, but I have to adjust for test
         positives = torch.nonzero(self.labels == 1).squeeze()
         positive_ratio = len(positives) / len(self.first)
         negatives = torch.nonzero(self.labels != 1).squeeze()
@@ -143,20 +159,8 @@ class CrossEncoderDatasetFull(data.Dataset):
 
         self.first, self.second, self.labels = new_first, new_second, new_labels
 
-        #Don't know why they do this
-        # if same_lemma:
-        #     idx = (self.lemmas[self.first] == self.lemmas[self.second]).nonzero()
-        #     self.first = self.first[idx]
-        #     self.second = self.second[idx]
-        #     self.labels = self.labels[idx]
 
-
-
-        self.instances = self.prepare_pair_of_mentions(self.mentions, self.first,
-                                                       self.second)
-
-
-
+        
     def read_files(self, config,split_name):
         docs_path = os.path.join(config.data_folder + split_name +'/','dataset.conll')
         mentions_path = os.path.join(config.data_folder+ split_name +'/','{}.json'.format(config.mention_type))
@@ -222,7 +226,7 @@ class CrossEncoderDatasetFull(data.Dataset):
                                     mentions_repr[second[i]], "[SEP]"]) for i in range(len(first))]
         # Then it turns it into:
         # 'A friend of the actress told People she went to Promises [START] on Tuesday [END] and that her friends and family supported her decision .'
-        return instances
+        self.instances= instances
 
 
 
@@ -232,48 +236,6 @@ class CrossEncoderDatasetFull(data.Dataset):
 
     def __getitem__(self, index):
         return self.instances[index], self.labels[index].unsqueeze(-1)
-
-
-
-### Datasets config constants
-ECBPLUS_ENTITY_CONFIG = DatasetConfig(data_folder="../../CDCR/data/ECBplus-prep/output_data/",mention_type="entity_mentions",use_gold_mentions=True)
-ECBPLUS_EVENT_CONFIG = DatasetConfig(data_folder="../../CDCR/data/ECBplus-prep/output_data/",mention_type="event_mentions",use_gold_mentions=True)
-
-#FCC_ENTITY_CONFIG = does not exist
-FCC_EVENT_CONFIG = DatasetConfig(data_folder="../../CDCR/data/FCC-prep/output_data_FCC/",mention_type="event_mentions",use_gold_mentions=True)
-
-FCC_T_ENTITY_CONFIG = DatasetConfig(data_folder="../../CDCR/data/FCC-prep/output_data_FCC-T/",mention_type="entity_mentions_attr",use_gold_mentions=True)
-FCC_T_EVENT_CONFIG = DatasetConfig(data_folder="../../CDCR/data/FCC-prep/output_data_FCC-T/",mention_type="event_mentions",use_gold_mentions=True)
-
-#GVC_ENTITY_CONFIG = does not exist
-GVC_EVENT_CONFIG = DatasetConfig(data_folder="../../CDCR/data/GVC-prep/output_data/",mention_type="event_mentions",use_gold_mentions=True)
-
-MEANTIME_ENTITY_CONFIG = DatasetConfig(data_folder="../../CDCR/data/MEANTIME-prep/output_data/",mention_type="entity_mentions",use_gold_mentions=True)
-MEANTIME_EVENT_CONFIG = DatasetConfig(data_folder="../../CDCR/data/MEANTIME-prep/output_data/",mention_type="event_mentions",use_gold_mentions=True)
-
-NEWSWCL50_ENTITY_CONFIG = DatasetConfig(data_folder="../../CDCR/data/NewsWCL50-prep/output_data/",mention_type="entity_mentions",use_gold_mentions=True)
-NEWSWCL50_EVENT_CONFIG = DatasetConfig(data_folder="../../CDCR/data/NewsWCL50-prep/output_data/",mention_type="event_mentions",use_gold_mentions=True)
-
-NIDENT_ENTITY_CONFIG = DatasetConfig(data_folder="../../CDCR/data/NiDENT-prep/output_data/",mention_type="entity_mentions",use_gold_mentions=True)
-#NIDENT_EVENT_CONFIG = does not exist
-
-NP4E_ENTITY_CONFIG = DatasetConfig(data_folder="../../CDCR/data/NP4E-prep/output_data/",mention_type="entity_mentions",use_gold_mentions=True)
-#NP4E_EVENT_CONFIG = does not exist
-
-datasets_config_constants = {
-    "ECBPLUS_ENTITY_CONFIG": ECBPLUS_ENTITY_CONFIG,
-    "ECBPLUS_EVENT_CONFIG": ECBPLUS_EVENT_CONFIG,
-    "FCC_EVENT_CONFIG": FCC_EVENT_CONFIG,
-    "FCC_T_ENTITY_CONFIG": FCC_T_ENTITY_CONFIG,
-    "FCC_T_EVENT_CONFIG": FCC_T_EVENT_CONFIG,
-    "GVC_EVENT_CONFIG": GVC_EVENT_CONFIG,
-    "MEANTIME_ENTITY_CONFIG": MEANTIME_ENTITY_CONFIG,
-    "MEANTIME_EVENT_CONFIG": MEANTIME_EVENT_CONFIG,
-    "NEWSWCL50_ENTITY_CONFIG": NEWSWCL50_ENTITY_CONFIG,
-    "NEWSWCL50_EVENT_CONFIG": NEWSWCL50_EVENT_CONFIG,
-    "NIDENT_ENTITY_CONFIG": NIDENT_ENTITY_CONFIG,
-    "NP4E_ENTITY_CONFIG": NP4E_ENTITY_CONFIG
-}
 
 
 #Since I define the split in the initialization of the CrossEncoderDatasetFull class,

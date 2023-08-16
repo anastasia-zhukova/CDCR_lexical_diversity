@@ -144,8 +144,8 @@ class FullCrossEncoder(nn.Module):
 
 
     def forward(self, input_ids, attention_mask):
-        output, _ = self.model(input_ids, attention_mask)
-        cls_vector = output[:, 0, :]
+        output= self.model(input_ids, attention_mask)
+        cls_vector = output.last_hidden_state[:, 0, :]
         scores = self.linear(cls_vector)
 
         return scores

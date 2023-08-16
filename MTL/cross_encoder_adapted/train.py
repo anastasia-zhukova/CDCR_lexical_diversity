@@ -30,7 +30,7 @@ if __name__ == '__main__':
     # init train and dev set
     train = CrossEncoderDatasetFull(config, 'train')
     train_loader = data.DataLoader(train, batch_size=config.batch_size, shuffle=True)
-    dev = CrossEncoderDatasetFull(config, 'dev')
+    dev = CrossEncoderDatasetFull(config, 'val')
     dev_loader = data.DataLoader(dev, batch_size=config.batch_size, shuffle=False)
 
     device_ids = config.gpu_num

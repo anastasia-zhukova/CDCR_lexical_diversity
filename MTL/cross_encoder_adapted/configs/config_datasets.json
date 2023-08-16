@@ -1,0 +1,59 @@
+{
+    "common_data_folder": "../../CDCR/data/",
+    "ECBPLUS_ENTITY_CONFIG": {
+      "data_folder": "${common_data_folder}ECBplus-prep/output_data/",
+      "mention_type": "entity_mentions",
+      "use_gold_mentions": true
+    },
+    "ECBPLUS_EVENT_CONFIG": {
+      "data_folder": "${common_data_folder}ECBplus-prep/output_data/",
+      "mention_type": "event_mentions",
+      "use_gold_mentions": true
+    },
+    "FCC_EVENT_CONFIG": {
+      "data_folder": "${common_data_folder}FCC-prep/output_data_FCC/",
+      "mention_type": "event_mentions",
+      "use_gold_mentions": true
+    },
+    "FCC_T_ENTITY_CONFIG": {
+      "data_folder": "${common_data_folder}FCC-prep/output_data_FCC-T/",
+      "mention_type": "entity_mentions_attr",
+      "use_gold_mentions": true
+    },
+    "FCC_T_EVENT_CONFIG": {
+      "data_folder": "${common_data_folder}FCC-prep/output_data_FCC-T/",
+      "mention_type": "event_mentions",
+      "use_gold_mentions": true
+    },
+    "GVC_EVENT_CONFIG": {
+      "data_folder": "${common_data_folder}GVC-prep/output_data/",
+      "mention_type": "event_mentions",
+      "use_gold_mentions": true
+    },
+    "MEANTIME_ENTITY_CONFIG": {
+      "data_folder": "${common_data_folder}MEANTIME-prep/output_data/",
+      "mention_type": "entity_mentions",
+      "use_gold_mentions": true
+    },
+    "MEANTIME_EVENT_CONFIG": {
+      "data_folder": "${common_data_folder}MEANTIME-prep/output_data/",
+      "mention_type": "event_mentions",
+      "use_gold_mentions": true
+    },
+    "NEWSWCL50_ENTITY_CONFIG": {
+      "data_folder": "${common_data_folder}NewsWCL50-prep/output_data/",
+      "mention_type": "entity_mentions",
+      "use_gold_mentions": true
+    },
+    "NEWSWCL50_EVENT_CONFIG": {
+      "data_folder": "${common_data_folder}NewsWCL50-prep/output_data/",
+      "mention_type": "event_mentions",
+      "use_gold_mentions": true
+    },
+    "NIDENT_ENTITY_CONFIG": {
+      "data_folder": "${common_data_folder}NiDENT-prep/output_data/",
+      "mention_type": "entity_mentions",
+      "use_gold_mentions": true
+    }
+  }
+  

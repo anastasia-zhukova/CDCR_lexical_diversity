@@ -10,7 +10,7 @@ from models import  SpanEmbedder, SpanScorer, FullCrossEncoder
 from evaluator import Evaluation
 from dataset import CrossEncoderDatasetFull
 from utils import *
-
+from cluster_documents import return_mentions_with_predicted_topics
 
 
 
@@ -56,12 +56,13 @@ if __name__ == '__main__':
 
     train_loader = data.DataLoader(train, batch_size=config.batch_size, shuffle=True)
     dev = CrossEncoderDatasetFull(config, 'val')
-    #TODO modify topics according to clustering
-    #get curent mentions
-    current_mentions = dev.mentions
-    #Method to assign new topics to mentions
-    modified_mentions = current_mentions #Temporary
-    dev.assign_mentions_with_new_topics(modified_mentions)
+
+    predict_topics = True #TODO Pass by config parameter
+    if predict_topics:
+        mentions_w_predicted_topics = return_mentions_with_predicted_topics(dev)
+        dev.assign_mentions_with_new_topics(mentions_w_predicted_topics)
+    #Else by default now: use the known topics at inference, which must change
+
     dev.create_mention_pairs_by_topics()
     dev.prepare_pair_of_mentions( mentions=dev.mentions, first=dev.first, second=dev.second)
 

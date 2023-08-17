@@ -121,9 +121,13 @@ class CrossEncoderDatasetFull(data.Dataset):
     def assign_mentions_with_new_topics(self, modified_mentions):
         self.mentions = modified_mentions
 
-    def create_mention_pairs_by_topics(self):
+    def create_mention_pairs_by_topics(self,use_predicted=False):
+
         for i, m in enumerate(self.mentions):
-            self.mentions_by_topics[m['topic']].append(i)
+            if use_predicted:
+                self.mentions_by_topics[m['predicted_topic']].append(i)
+            else:
+                self.mentions_by_topics[m['topic']].append(i)
 
         for _, mentions in self.mentions_by_topics.items():
             first, second = zip(*list(combinations(range(len(mentions)), 2)))

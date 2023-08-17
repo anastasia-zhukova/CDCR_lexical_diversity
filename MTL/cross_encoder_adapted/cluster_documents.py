@@ -15,9 +15,11 @@ def return_mentions_with_predicted_topics(dataset,compare_with_true_labels=False
     vectorizer = TfidfVectorizer(max_df=0.5, min_df=3, ngram_range=(1,3),
                                     stop_words='english')
     X = vectorizer.fit_transform(concatenated_documents_dict.values())
-    #Create clusters
-    NUM_TOPICS=20
 
+    #Define number of clusters
+    num_mentions = len(dataset.mentions)
+    NUM_TOPICS=5 if num_mentions<3000 else 10 if num_mentions<4000 else 15 if num_mentions< 5000 else 20
+    print("NUM_TOPICS",NUM_TOPICS, "NUM_MENTIONS",num_mentions)
     kmeans = sklearn.cluster.KMeans(n_clusters=NUM_TOPICS, init='k-means++', max_iter=200,
                                     n_init=20,random_state=665,algorithm='auto')
 

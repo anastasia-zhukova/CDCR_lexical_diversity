@@ -87,7 +87,7 @@ class CrossEncoderDatasetInstances(data.Dataset):
 
 class CrossEncoderDatasetFull(data.Dataset):
     def __init__(self, config,split_name='train', same_lemma=False):
-        
+        self.dataset_id = "/".join([config.data_folder.split('/')[-3],config.mention_type,split_name])
         self.read_files(config,split_name) #Sets self.documents, self.topics and self.mentions belonging to the topics
         # self.lemmas = np.asarray([x['lemmas'] for x in self.mentions]) #Do not know yet why we need the lemmas}
 
@@ -239,7 +239,10 @@ class CrossEncoderDatasetFull(data.Dataset):
 
 
     def __getitem__(self, index):
-        return self.instances[index], self.labels[index].unsqueeze(-1)
+        mention_id1 = self.mentions[self.first[index]]['mention_id']
+        mention_id2 = self.mentions[self.second[index]]['mention_id']
+        instance_id = '[SEP]'.join([mention_id1,mention_id2])
+        return self.instances[index], self.labels[index].unsqueeze(-1), instance_id, self.dataset_id
 
 
 #Since I define the split in the initialization of the CrossEncoderDatasetFull class,

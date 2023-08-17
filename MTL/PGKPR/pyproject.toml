@@ -24,6 +24,7 @@ openpyxl = "^3.1.2"
 datasets = "^2.14.3"
 pyhocon = "^0.3.60"
 matplotlib = "^3.7.2"
+pytest = "^7.4.0"
 
 
 [build-system]

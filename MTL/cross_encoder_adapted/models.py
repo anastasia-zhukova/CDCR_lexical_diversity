@@ -124,6 +124,7 @@ class FullCrossEncoder(nn.Module):
 
 
         if not is_training and config.pretrained_model:
+            #TODO set pretrained_model depending on the model that I want to use
             self.model = AutoModel.from_pretrained(config.pretrained_model)
 
         else:

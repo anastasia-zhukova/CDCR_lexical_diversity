@@ -110,7 +110,8 @@ if __name__ == '__main__':
         number_of_positive_pairs, number_of_pairs = 0, 0
         cross_encoder.train()
 
-        for batch_x, batch_y in tqdm(train_loader):
+        for batch_x, batch_y,instance_id,dataset_id in tqdm(train_loader):
+
             bert_tokens = cross_encoder.module.tokenizer(batch_x, pad_to_max_length=True)
             input_ids = torch.tensor(bert_tokens['input_ids'], device=device)
             attention_mask = torch.tensor(bert_tokens['attention_mask'], device=device)
@@ -162,7 +163,7 @@ if __name__ == '__main__':
         number_of_positive_pairs, number_of_pairs = 0, 0
         cross_encoder.eval()
 
-        for batch_x, batch_y in tqdm(dev_loader):
+        for batch_x, batch_y,instance_id,dataset_id in tqdm(dev_loader):
             bert_tokens = cross_encoder.module.tokenizer(batch_x, pad_to_max_length=True)
             input_ids = torch.tensor(bert_tokens['input_ids'], device=device)
             attention_mask = torch.tensor(bert_tokens['attention_mask'], device=device)

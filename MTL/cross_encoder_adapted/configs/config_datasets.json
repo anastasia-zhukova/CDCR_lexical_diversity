@@ -43,6 +43,12 @@
     "NIDENT_ENTITY_CONFIG": {
       "data_folder": "${common_data_folder}NiDENT-prep/output_data/",
       "mention_type": "entity_mentions"
+    },
+    "MRPC": {
+      "data_folder": "mrpc"
+    },
+    "HOW": {
+      "data_folder": "../../PI/data/HoW/HoW_DatasetDict/"
     }
   }
   

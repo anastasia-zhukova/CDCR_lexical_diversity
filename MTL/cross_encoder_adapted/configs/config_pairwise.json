@@ -36,7 +36,7 @@
   "span_scorer_path": "models/span_scorers/events_span_scorer_0",
   "model_path": "models/pairwise_scorers",
 
-  "experiment_id" : "None"
+  "experiment_id" : "Experiment3"
 
 
 }

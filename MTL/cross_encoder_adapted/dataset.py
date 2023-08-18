@@ -1,3 +1,4 @@
+from datasets import load_dataset, DatasetDict
 import torch
 from torch.utils import data
 import collections
@@ -244,6 +245,39 @@ class CrossEncoderDatasetFull(data.Dataset):
         return self.instances[index], self.labels[index].unsqueeze(-1), self.instance_ids[index], self.task
 
 
+## Paraphrase dataset
+class ParaphraseDataset(data.Dataset):
+
+    def __init__(self, config,split_name='train'):
+
+        if config.data_folder=="mrpc":
+            dataset_dict = load_dataset('glue',config.data_folder)
+            dataset_name = "mrpc"
+        
+        else:
+            dataset_dict = DatasetDict.load_from_disk(config.data_folder)
+            dataset_name = "how"
+
+        self.dataset = dataset_dict[split_name]
+        self.dataset_id = "/".join([dataset_name,split_name])
+        
+        self.instances  = [f"{s1}[SEP]{s2}[SEP]" for s1, s2 in zip(self.dataset['sentence1'], self.dataset['sentence2'])]
+        self.labels = torch.Tensor(self.dataset["label"])
+        
+        #Create key with index 
+        self.instance_ids = [f"{self.dataset_id}[SEP]{s1}" for s1 in self.dataset['idx']]
+        self.task='PI'
+
+
+
+    def __len__(self):
+        return len(self.labels)
+
+
+    def __getitem__(self, index):
+        return self.instances[index], self.labels[index].unsqueeze(-1), self.instance_ids[index], self.task
+
+
 
 ### Mixed datasets class
 
@@ -262,33 +296,31 @@ class CrossEncoderMixedDatasetFull(data.Dataset):
             task = dataset_config_dict['task']
 
             temp_folder = datasets_config[dataset_key]['data_folder'] 
-            temp_mention_type = datasets_config[dataset_key]['mention_type']
-
             temp_config = config.copy()
             temp_config.put('data_folder',temp_folder)
-            temp_config.put('mention_type',temp_mention_type)
+
+            if task=="CDCR":
+                temp_mention_type = datasets_config[dataset_key]['mention_type']
+                temp_config.put('mention_type',temp_mention_type)
 
             dataset_instance = None
             if task =="CDCR":
                 dataset_instance = CrossEncoderDatasetFull(temp_config,split )
+                if get_topics=="predict_topics":
+                    mentions_w_predicted_topics = return_mentions_with_predicted_topics(dataset_instance)
+                    dataset_instance.assign_mentions_with_new_topics(mentions_w_predicted_topics)
+                    #predict topics
+
+                dataset_instance.create_mention_pairs_by_topics()
+
+                if get_topics=='negative_sampling':
+                    dataset_instance.negative_sampling()
+            
+                dataset_instance.prepare_pair_of_mentions()
+
+
             if task=="PI":
-                #Create PIDatasetInstance
-                pass
-
-            
-            if get_topics=="predict_topics":
-                mentions_w_predicted_topics = return_mentions_with_predicted_topics(dataset_instance)
-                dataset_instance.assign_mentions_with_new_topics(mentions_w_predicted_topics)
-                #predict topics
-
-            dataset_instance.create_mention_pairs_by_topics()
-
-            if get_topics=='negative_sampling':
-                dataset_instance.negative_sampling()
-            
-            dataset_instance.prepare_pair_of_mentions()
-
-
+                dataset_instance = ParaphraseDataset(temp_config,split )
 
             self.instances.extend(dataset_instance.instances)
             self.labels.extend(dataset_instance.labels)

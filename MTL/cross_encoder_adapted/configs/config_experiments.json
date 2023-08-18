@@ -1,0 +1,30 @@
+{
+    "Experiment1": {
+        "train": [
+            {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "train", "get_topics": "negative_sampling"},
+            {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "train", "get_topics": "negative_sampling"}
+        ],
+        "val": [
+            {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "val", "get_topics": "predict_topics"},
+            {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "val", "get_topics": "predict_topics"}
+        ],
+        "test": [
+            {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "test", "get_topics": "predict_topics"},
+            {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "test", "get_topics": "predict_topics"}
+        ]
+    },
+    "Experiment2": {
+        "train": [
+            {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "train", "get_topics": "negative_sampling"},
+            {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "train", "get_topics": "negative_sampling"}
+        ],
+        "val": [
+            {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "val", "get_topics": "predict_topics"},
+            {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "val", "get_topics": "predict_topics"}
+        ],
+        "test": [
+            {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "test", "get_topics": "predict_topics"},
+            {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "test", "get_topics": "predict_topics"}
+        ]
+    }
+}

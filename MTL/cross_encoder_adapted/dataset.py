@@ -9,6 +9,8 @@ import json
 import hashlib
 from collections import namedtuple
 
+from cluster_documents import return_mentions_with_predicted_topics
+
 class DatasetConfig():
     def __init__(self, data_folder,mention_type,use_gold_mentions=True):
         self.data_folder = data_folder
@@ -86,6 +88,7 @@ class CrossEncoderDatasetInstances(data.Dataset):
 
 
 class CrossEncoderDatasetFull(data.Dataset):
+
     def __init__(self, config,split_name='train', same_lemma=False):
         self.dataset_id = "/".join([config.data_folder.split('/')[-3],config.mention_type,split_name])
         self.read_files(config,split_name) #Sets self.documents, self.topics and self.mentions belonging to the topics
@@ -102,21 +105,16 @@ class CrossEncoderDatasetFull(data.Dataset):
         self.second = []
         self.labels = []
 
-
-
-        print('topics keys',self.mentions_by_topics.keys())
-
-        
         #Don't know why they do this
         # if same_lemma:
         #     idx = (self.lemmas[self.first] == self.lemmas[self.second]).nonzero()
         #     self.first = self.first[idx]
         #     self.second = self.second[idx]
         #     self.labels = self.labels[idx]
-
-
-        #Call this during data creation
+        
         self.instances = []
+        self.instance_ids = []
+        self.task='CDCR'
 
     def assign_mentions_with_new_topics(self, modified_mentions):
         self.mentions = modified_mentions
@@ -224,14 +222,18 @@ class CrossEncoderDatasetFull(data.Dataset):
         return np.asarray([self.encode_mention_with_context(m) for m in mentions])
 
 
-    def prepare_pair_of_mentions(self, mentions, first, second):
-        mentions_repr = np.asarray([self.encode_mention_with_context(m) for m in mentions])
-        instances = [' '.join([mentions_repr[first[i]], "[SEP]",
-                                    mentions_repr[second[i]], "[SEP]"]) for i in range(len(first))]
+    def prepare_pair_of_mentions(self):
+        mentions_repr = np.asarray([self.encode_mention_with_context(m) for m in self.mentions])
+        instances = [' '.join([mentions_repr[self.first[i]], "[SEP]",
+                                    mentions_repr[self.second[i]], "[SEP]"]) for i in range(len(self.first))]
         # Then it turns it into:
         # 'A friend of the actress told People she went to Promises [START] on Tuesday [END] and that her friends and family supported her decision .'
         self.instances= instances
 
+        #Create key with mentions ids
+        self.instance_ids = ['[SEP]'.join([self.dataset_id, self.mentions[self.first[index]]['mention_id'],
+                                   self.mentions[self.second[index]]['mention_id']])
+                     for index in range(len(self.first))]
 
 
     def __len__(self):
@@ -239,10 +241,75 @@ class CrossEncoderDatasetFull(data.Dataset):
 
 
     def __getitem__(self, index):
-        mention_id1 = self.mentions[self.first[index]]['mention_id']
-        mention_id2 = self.mentions[self.second[index]]['mention_id']
-        instance_id = '[SEP]'.join([mention_id1,mention_id2])
-        return self.instances[index], self.labels[index].unsqueeze(-1), instance_id, self.dataset_id
+        return self.instances[index], self.labels[index].unsqueeze(-1), self.instance_ids[index], self.task
+
+
+
+### Mixed datasets class
+
+class CrossEncoderMixedDatasetFull(data.Dataset):
+    def __init__(self,config,datasets_config,experiment_split ):
+        self.instances = []
+        self.labels = []
+        self.instance_ids = []
+        self.datasets_task = []
+
+
+        for dataset_config_dict in experiment_split:
+            dataset_key = dataset_config_dict['config_key']
+            split = dataset_config_dict['split']
+            get_topics =dataset_config_dict['get_topics']
+            task = dataset_config_dict['task']
+
+            temp_folder = datasets_config[dataset_key]['data_folder'] 
+            temp_mention_type = datasets_config[dataset_key]['mention_type']
+
+            temp_config = config.copy()
+            temp_config.put('data_folder',temp_folder)
+            temp_config.put('mention_type',temp_mention_type)
+
+            dataset_instance = None
+            if task =="CDCR":
+                dataset_instance = CrossEncoderDatasetFull(temp_config,split )
+            if task=="PI":
+                #Create PIDatasetInstance
+                pass
+
+            
+            if get_topics=="predict_topics":
+                mentions_w_predicted_topics = return_mentions_with_predicted_topics(dataset_instance)
+                dataset_instance.assign_mentions_with_new_topics(mentions_w_predicted_topics)
+                #predict topics
+
+            dataset_instance.create_mention_pairs_by_topics()
+
+            if get_topics=='negative_sampling':
+                dataset_instance.negative_sampling()
+            
+            dataset_instance.prepare_pair_of_mentions()
+
+
+
+            self.instances.extend(dataset_instance.instances)
+            self.labels.extend(dataset_instance.labels)
+            self.instance_ids.extend(dataset_instance.instance_ids)
+            self.datasets_task.extend([dataset_instance.task]*len(dataset_instance.instances))
+
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, index):
+        instance = self.instances[index]
+        label = self.labels[index]
+        instance_id = self.instance_ids[index]
+        task = self.datasets_task[index]
+
+        return instance, label, instance_id, task
+
+
+
+
+
 
 
 #Since I define the split in the initialization of the CrossEncoderDatasetFull class,

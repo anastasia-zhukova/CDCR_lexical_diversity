@@ -8,7 +8,7 @@ from torch.utils import data
 
 from models import  SpanEmbedder, SpanScorer, FullCrossEncoder
 from evaluator import Evaluation
-from dataset import CrossEncoderDatasetFull
+from dataset import CrossEncoderDatasetFull, CrossEncoderMixedDatasetFull
 from utils import *
 from cluster_documents import return_mentions_with_predicted_topics
 
@@ -21,9 +21,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default='configs/config_pairwise.json')
     parser.add_argument('--dataset_config', type=str, default='configs/config_datasets.json')
+    parser.add_argument('--config_experiments', type=str, default='configs/config_experiments.json')
     args = parser.parse_args()
     config = pyhocon.ConfigFactory.parse_file(args.config)
     datasets_config = pyhocon.ConfigFactory.parse_file(args.dataset_config)
+    config_experiments = pyhocon.ConfigFactory.parse_file(args.config_experiments)
 
     #Set data paths according to the common_data_folder path in the config_datasets file
     common_data_folder = datasets_config.get_string("common_data_folder")
@@ -40,33 +42,32 @@ if __name__ == '__main__':
     logger.info(pyhocon.HOCONConverter.convert(config, "hocon"))
     create_folder(config.model_path)
 
-    #Load config_datasets.json file
-    datasets_config = pyhocon.ConfigFactory.parse_file('configs/config_datasets.json')
-    common_data_folder = datasets_config.get_string("common_data_folder")
-    for key in datasets_config:
-        if isinstance(datasets_config[key], dict) and "data_folder" in datasets_config[key]:
-            datasets_config[key]["data_folder"] = datasets_config[key]["data_folder"].replace("${common_data_folder}", common_data_folder)
-
-
     # init train and dev set
-    train = CrossEncoderDatasetFull(config, 'train')
-    train.create_mention_pairs_by_topics()
-    train.negative_sampling()
-    train.prepare_pair_of_mentions(mentions=train.mentions, first=train.first, second=train.second)
+    if config.experiment_id:
+        train = CrossEncoderMixedDatasetFull(config,datasets_config,config_experiments[config.experiment_id]['train'])
+        val = CrossEncoderMixedDatasetFull(config,datasets_config,config_experiments[config.experiment_id]['val'])
+        #test = CrossEncoderMixedDatasetFull(config,datasets_config,config_experiments[config.experiment_id]['test'])
+
+    else:
+        train = CrossEncoderDatasetFull(config, 'train')
+        train.create_mention_pairs_by_topics()
+        train.negative_sampling()
+        train.prepare_pair_of_mentions()
+        
+        val = CrossEncoderDatasetFull(config, 'val')
+
+        predict_topics = True #TODO Pass by config parameter
+        if predict_topics:
+            mentions_w_predicted_topics = return_mentions_with_predicted_topics(val)
+            val.assign_mentions_with_new_topics(mentions_w_predicted_topics)
+        #Else by default now: use the known topics at inference, I must change it later
+
+        val.create_mention_pairs_by_topics()
+        val.prepare_pair_of_mentions()
 
     train_loader = data.DataLoader(train, batch_size=config.batch_size, shuffle=True)
-    dev = CrossEncoderDatasetFull(config, 'val')
 
-    predict_topics = True #TODO Pass by config parameter
-    if predict_topics:
-        mentions_w_predicted_topics = return_mentions_with_predicted_topics(dev)
-        dev.assign_mentions_with_new_topics(mentions_w_predicted_topics)
-    #Else by default now: use the known topics at inference, which must change
-
-    dev.create_mention_pairs_by_topics()
-    dev.prepare_pair_of_mentions( mentions=dev.mentions, first=dev.first, second=dev.second)
-
-    dev_loader = data.DataLoader(dev, batch_size=config.batch_size, shuffle=False)
+    val_loader = data.DataLoader(val, batch_size=config.batch_size, shuffle=False)
 
     device_ids = config.gpu_num
     device = torch.device("cuda:{}".format(device_ids[0]))
@@ -102,7 +103,6 @@ if __name__ == '__main__':
 
 
 
-    logger.info('Number of topics: {}'.format(len(train.topics)))
     f1 = []
     for epoch in range(config.epochs):
         logger.info('Epoch: {}'.format(epoch))
@@ -110,7 +110,7 @@ if __name__ == '__main__':
         number_of_positive_pairs, number_of_pairs = 0, 0
         cross_encoder.train()
 
-        for batch_x, batch_y,instance_id,dataset_id in tqdm(train_loader):
+        for batch_x, batch_y,instance_id,dataset_task in tqdm(train_loader):
 
             bert_tokens = cross_encoder.module.tokenizer(batch_x, pad_to_max_length=True)
             input_ids = torch.tensor(bert_tokens['input_ids'], device=device)
@@ -163,7 +163,7 @@ if __name__ == '__main__':
         number_of_positive_pairs, number_of_pairs = 0, 0
         cross_encoder.eval()
 
-        for batch_x, batch_y,instance_id,dataset_id in tqdm(dev_loader):
+        for batch_x, batch_y,instance_id,dataset_task in tqdm(val_loader):
             bert_tokens = cross_encoder.module.tokenizer(batch_x, pad_to_max_length=True)
             input_ids = torch.tensor(bert_tokens['input_ids'], device=device)
             attention_mask = torch.tensor(bert_tokens['attention_mask'], device=device)

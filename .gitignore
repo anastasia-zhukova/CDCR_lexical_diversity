@@ -9,6 +9,7 @@ __pycache__/
 #Folder with cross-encoder runs
 /CDCR/models/CDLM-main/cross_encoder/runs/
 /CDCR/models/e2e_coref/logs
+/CDCR/models/e2e_coref/models/pairwise_scorers
 /MTL/cross_encoder_adapted/logs
 #CSV and JSON from PGKPR
 MTL/PGKPR/**/*.csv

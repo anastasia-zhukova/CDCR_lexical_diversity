@@ -119,6 +119,8 @@ if __name__ == '__main__':
             optimizer.zero_grad()
             cross_encoder.zero_grad()
             scores = cross_encoder(input_ids, attention_mask)
+
+            batch_y = batch_y.view(-1, 1)
             loss = criterion(scores, batch_y.to(device))
             loss.mean().backward()
             torch.nn.utils.clip_grad_norm_(cross_encoder.parameters(), 1.0)

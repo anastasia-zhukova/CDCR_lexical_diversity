@@ -11,6 +11,10 @@ __pycache__/
 /CDCR/models/e2e_coref/logs
 /CDCR/models/e2e_coref/models/pairwise_scorers
 /MTL/cross_encoder_adapted/logs
+/MTL/PGKPR_adapted/models
+/MTL/cross_encoder_adapted/slurm_files
+/MTL/PGKPR/slurm_files
+/MTL/PGKPR_adapted/slurm_files
 #CSV and JSON from PGKPR
 MTL/PGKPR/**/*.csv
 MTL/PGKPR/**/*.json

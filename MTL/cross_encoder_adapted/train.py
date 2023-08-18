@@ -43,7 +43,7 @@ if __name__ == '__main__':
     create_folder(config.model_path)
 
     # init train and dev set
-    if config.experiment_id:
+    if "Experiment" in config.experiment_id:
         train = CrossEncoderMixedDatasetFull(config,datasets_config,config_experiments[config.experiment_id]['train'])
         val = CrossEncoderMixedDatasetFull(config,datasets_config,config_experiments[config.experiment_id]['val'])
         #test = CrossEncoderMixedDatasetFull(config,datasets_config,config_experiments[config.experiment_id]['test'])
@@ -80,7 +80,13 @@ if __name__ == '__main__':
     cross_encoder_single = FullCrossEncoder(config).to(device)
     cross_encoder = torch.nn.DataParallel(cross_encoder_single, device_ids=device_ids)
 
+    # Freeze the weights of the pretrained RoBERTa model
+    for param in cross_encoder_single.model.parameters():
+        param.requires_grad = False
 
+    # Unfreeze the parameters of the linear layer
+    for param in cross_encoder_single.linear.parameters():
+        param.requires_grad = True
     # if config.training_method in ('pipeline', 'continue') and not config.use_gold_mentions:
     #     span_repr.load_state_dict(torch.load(config.span_repr_path, map_location=device))
     #     span_scorer.load_state_dict(torch.load(config.span_scorer_path, map_location=device))
@@ -126,6 +132,8 @@ if __name__ == '__main__':
             torch.nn.utils.clip_grad_norm_(cross_encoder.parameters(), 1.0)
             optimizer.step()
             scheduler.step()
+
+            torch.cuda.empty_cache()
 
 
             accumulate_loss += loss.item()
@@ -173,7 +181,8 @@ if __name__ == '__main__':
             with torch.no_grad():
                 scores = cross_encoder(input_ids, attention_mask)
 
-
+            torch.cuda.empty_cache()
+            
             number_of_positive_pairs += len((batch_y == 1).nonzero())
             number_of_pairs += len(batch_y)
 

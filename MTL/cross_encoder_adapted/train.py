@@ -83,6 +83,11 @@ if __name__ == '__main__':
 
     # Define the names of the layers you want to unfreeze
     unfreeze_layers = [
+        "encoder.layer.21.output.dense.weight",
+        "encoder.layer.21.output.dense.bias",
+        "encoder.layer.21.output.LayerNorm.weight",
+        "encoder.layer.21.output.LayerNorm.bias",
+
         "encoder.layer.22.output.dense.weight",
         "encoder.layer.22.output.dense.bias",
         "encoder.layer.22.output.LayerNorm.weight",

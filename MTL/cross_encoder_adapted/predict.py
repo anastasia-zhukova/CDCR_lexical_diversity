@@ -18,7 +18,7 @@ from transformers import RobertaModel
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, default='configs/config_clustering_cross_encoder.json')
+    parser.add_argument('--config', type=str, default='configs/config_clustering.json')
     args = parser.parse_args()
 
     config = pyhocon.ConfigFactory.parse_file(args.config)
@@ -31,7 +31,7 @@ if __name__ == '__main__':
     device = torch.device("cuda:{}".format(device_ids[0]))
 
     cross_encoder = FullCrossEncoder(config).to(device)
-    cross_encoder.model = RobertaModel.from_pretrained(os.path.join(config.model_path, 'bert')).to(device)
+    cross_encoder.model = RobertaModel.from_pretrained(os.path.join(config.model_path, 'bert')).to(device) # I have to choose the right model path
     cross_encoder.linear.load_state_dict(torch.load(os.path.join(config.model_path, 'linear')))
     model = torch.nn.DataParallel(cross_encoder, device_ids=device_ids)
     model.eval()
@@ -55,19 +55,19 @@ if __name__ == '__main__':
 
 
     doc_ids, sentence_ids, starts, ends = [], [], [], []
-    logger.info('Number of topics: {}'.format(len(data.topic_list)))
+    logger.info('Number of topics: {}'.format(len(data.topic_list))) #Predict the topics before calling this methid
 
 
     for topic_num, topic in enumerate(data.topics):
         logger.info('Processing topic {}'.format(topic))
-        topic_dataset = CrossEncoderDatasetTopic(data, topic)
+        topic_dataset = CrossEncoderDatasetTopic(data, topic) #Check this method. Takes in the full class
         topic_loader = torch.utils.data.DataLoader(topic_dataset, batch_size=64)
 
         all_scores = []
         topic_mentions_ids = data.mentions_by_topics[topic]
         topic_mentions = [data.mentions[x] for x in topic_mentions_ids]
 
-        mentions_repr = data.prepare_mention_representation(topic_mentions)
+        mentions_repr = data.prepare_mention_representation(topic_mentions) #Since I changed this method, this could be problematic
 
         doc_ids.extend([m['doc_id'] for m in topic_mentions])
         sentence_ids.extend([m['sentence_id'] for m in topic_mentions])
@@ -79,7 +79,7 @@ if __name__ == '__main__':
         first, second = torch.tensor(first), torch.tensor(second)
 
         instances = [' '.join([mentions_repr[first[i]], "[SEP]",
-                               mentions_repr[second[i]], "[SEP]"]) for i in range(len(first))]
+                               mentions_repr[second[i]], "[SEP]"]) for i in range(len(first))] # I changed the method to create the instances based on the first and second
 
         for i in tqdm(range(0, len(instances), 512)):
             batch = [instances[x] for x in range(i, min(i + 512, len(instances)))]

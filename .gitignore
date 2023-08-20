@@ -15,6 +15,7 @@ __pycache__/
 /MTL/cross_encoder_adapted/slurm_files
 /MTL/PGKPR/slurm_files
 /MTL/PGKPR_adapted/slurm_files
+/MTL/cross_encoder_adapted/models/pairwise_scorers/
 #CSV and JSON from PGKPR
 MTL/PGKPR/**/*.csv
 MTL/PGKPR/**/*.json

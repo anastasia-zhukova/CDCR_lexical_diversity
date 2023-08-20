@@ -80,9 +80,22 @@ if __name__ == '__main__':
     cross_encoder_single = FullCrossEncoder(config).to(device)
     cross_encoder = torch.nn.DataParallel(cross_encoder_single, device_ids=device_ids)
 
-    # Freeze the weights of the pretrained RoBERTa model
-    for param in cross_encoder_single.model.parameters():
-        param.requires_grad = False
+
+    # Define the names of the layers you want to unfreeze
+    unfreeze_layers = [
+        "encoder.layer.22.output.dense.weight",
+        "encoder.layer.22.output.dense.bias",
+        "encoder.layer.22.output.LayerNorm.weight",
+        "encoder.layer.22.output.LayerNorm.bias",
+
+        "encoder.layer.23.output.dense.weight",
+        "encoder.layer.23.output.dense.bias",
+        "encoder.layer.23.output.LayerNorm.weight",
+        "encoder.layer.23.output.LayerNorm.bias",
+    ]
+    #Unfreezes layers in list
+    for name, param in cross_encoder_single.model.named_parameters():
+        param.requires_grad = any(layer_name in name for layer_name in unfreeze_layers)
 
     # Unfreeze the parameters of the linear layer
     for param in cross_encoder_single.linear.parameters():
@@ -110,36 +123,44 @@ if __name__ == '__main__':
 
 
     f1 = []
+    best_f1 = 0.0
+    update_interval = 10
+
     for epoch in range(config.epochs):
         logger.info('Epoch: {}'.format(epoch))
         accumulate_loss = 0
         number_of_positive_pairs, number_of_pairs = 0, 0
         cross_encoder.train()
 
-        for batch_x, batch_y,instance_id,dataset_task in tqdm(train_loader):
+        with tqdm(total=len(train_loader), position=0) as pbar:
+            for batch_idx, (batch_x, batch_y, instance_id, dataset_task) in enumerate(train_loader):
+                if batch_idx % update_interval == 0:
+                    pbar.n = batch_idx * update_interval  # Set tqdm's current count to match the batch_idx
+                    pbar.refresh()  # Manually refresh the display
+                bert_tokens = cross_encoder.module.tokenizer(batch_x, pad_to_max_length=True)
+                input_ids = torch.tensor(bert_tokens['input_ids'], device=device)
+                attention_mask = torch.tensor(bert_tokens['attention_mask'], device=device)
 
-            bert_tokens = cross_encoder.module.tokenizer(batch_x, pad_to_max_length=True)
-            input_ids = torch.tensor(bert_tokens['input_ids'], device=device)
-            attention_mask = torch.tensor(bert_tokens['attention_mask'], device=device)
+                optimizer.zero_grad()
+                cross_encoder.zero_grad()
+                scores = cross_encoder(input_ids, attention_mask)
 
-            optimizer.zero_grad()
-            cross_encoder.zero_grad()
-            scores = cross_encoder(input_ids, attention_mask)
+                batch_y = batch_y.view(-1, 1)
+                loss = criterion(scores, batch_y.to(device))
+                loss.mean().backward()
+                torch.nn.utils.clip_grad_norm_(cross_encoder.parameters(), 1.0)
+                optimizer.step()
+                scheduler.step()
 
-            batch_y = batch_y.view(-1, 1)
-            loss = criterion(scores, batch_y.to(device))
-            loss.mean().backward()
-            torch.nn.utils.clip_grad_norm_(cross_encoder.parameters(), 1.0)
-            optimizer.step()
-            scheduler.step()
-
-            torch.cuda.empty_cache()
+                torch.cuda.empty_cache()
 
 
-            accumulate_loss += loss.item()
+                accumulate_loss += loss.item()
 
-            number_of_positive_pairs += len((batch_y == 1).nonzero())
-            number_of_pairs += len(batch_y)
+                number_of_positive_pairs += len((batch_y == 1).nonzero())
+                number_of_pairs += len(batch_y)
+
+                pbar.update(1)  # Update tqdm's progress by 1
 
 
 
@@ -225,8 +246,11 @@ if __name__ == '__main__':
         if not os.path.exists(out_dir):
             os.makedirs(out_dir)
 
-
-        cross_encoder_single.model.save_pretrained(os.path.join(out_dir, 'bert'))
-        torch.save(cross_encoder_single.linear.state_dict(), os.path.join(out_dir, 'linear'))
+        current_f1 = eval.get_f1() 
+        if current_f1 > best_f1:
+            best_f1 = current_f1
+            cross_encoder_single.model.save_pretrained(os.path.join(out_dir, 'bert'))
+            torch.save(cross_encoder_single.linear.state_dict(), os.path.join(out_dir, 'linear'))
 
         f1.append(eval.get_f1())
+    print("F1 values",f1)

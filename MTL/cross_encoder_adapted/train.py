@@ -132,37 +132,30 @@ if __name__ == '__main__':
         number_of_positive_pairs, number_of_pairs = 0, 0
         cross_encoder.train()
 
-        with tqdm(total=len(train_loader), position=0) as pbar:
-            for batch_idx, (batch_x, batch_y, instance_id, dataset_task) in enumerate(train_loader):
-                if batch_idx % update_interval == 0:
-                    pbar.n = batch_idx * update_interval  # Set tqdm's current count to match the batch_idx
-                    pbar.refresh()  # Manually refresh the display
-                bert_tokens = cross_encoder.module.tokenizer(batch_x, pad_to_max_length=True)
-                input_ids = torch.tensor(bert_tokens['input_ids'], device=device)
-                attention_mask = torch.tensor(bert_tokens['attention_mask'], device=device)
+        for batch_x, batch_y, instance_id, dataset_task in tqdm(train_loader):
 
-                optimizer.zero_grad()
-                cross_encoder.zero_grad()
-                scores = cross_encoder(input_ids, attention_mask)
+            bert_tokens = cross_encoder.module.tokenizer(batch_x, pad_to_max_length=True)
+            input_ids = torch.tensor(bert_tokens['input_ids'], device=device)
+            attention_mask = torch.tensor(bert_tokens['attention_mask'], device=device)
 
-                batch_y = batch_y.view(-1, 1)
-                loss = criterion(scores, batch_y.to(device))
-                loss.mean().backward()
-                torch.nn.utils.clip_grad_norm_(cross_encoder.parameters(), 1.0)
-                optimizer.step()
-                scheduler.step()
+            optimizer.zero_grad()
+            cross_encoder.zero_grad()
+            scores = cross_encoder(input_ids, attention_mask)
 
-                torch.cuda.empty_cache()
+            batch_y = batch_y.view(-1, 1)
+            loss = criterion(scores, batch_y.to(device))
+            loss.mean().backward()
+            torch.nn.utils.clip_grad_norm_(cross_encoder.parameters(), 1.0)
+            optimizer.step()
+            scheduler.step()
+
+            torch.cuda.empty_cache()
 
 
-                accumulate_loss += loss.item()
+            accumulate_loss += loss.item()
 
-                number_of_positive_pairs += len((batch_y == 1).nonzero())
-                number_of_pairs += len(batch_y)
-
-                pbar.update(1)  # Update tqdm's progress by 1
-
-
+            number_of_positive_pairs += len((batch_y == 1).nonzero())
+            number_of_pairs += len(batch_y)
 
         # list_of_topics = shuffle(list(range(len(training_set.topic_list))))
         # number_of_positive_pairs = 0

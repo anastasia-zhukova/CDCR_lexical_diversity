@@ -6,7 +6,7 @@ from sklearn.utils import shuffle
 from torch.utils import data
 
 
-from models import  SpanEmbedder, SpanScorer, FullCrossEncoder
+from models import FullCrossEncoder
 from evaluator import Evaluation
 from dataset import CrossEncoderDatasetFull, CrossEncoderMixedDatasetFull
 from utils import *
@@ -62,7 +62,7 @@ if __name__ == '__main__':
             val.assign_mentions_with_new_topics(mentions_w_predicted_topics)
         #Else by default now: use the known topics at inference, I must change it later
 
-        val.create_mention_pairs_by_topics()
+        val.create_mention_pairs_by_topics(use_predicted=True)
         val.prepare_pair_of_mentions()
 
     train_loader = data.DataLoader(train, batch_size=config.batch_size, shuffle=True)

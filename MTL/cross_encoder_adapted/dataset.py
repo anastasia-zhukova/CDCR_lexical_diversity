@@ -283,6 +283,9 @@ class ParaphraseDataset(data.Dataset):
 
 class CrossEncoderMixedDatasetFull(data.Dataset):
     def __init__(self,config,datasets_config,experiment_split ):
+
+        self.mentions = []
+
         self.instances = []
         self.labels = []
         self.instance_ids = []
@@ -306,12 +309,13 @@ class CrossEncoderMixedDatasetFull(data.Dataset):
             dataset_instance = None
             if task =="CDCR":
                 dataset_instance = CrossEncoderDatasetFull(temp_config,split )
+                self.mentions.extend(dataset_instance.mentions)
                 if get_topics=="predict_topics":
                     mentions_w_predicted_topics = return_mentions_with_predicted_topics(dataset_instance)
                     dataset_instance.assign_mentions_with_new_topics(mentions_w_predicted_topics)
                     #predict topics
 
-                dataset_instance.create_mention_pairs_by_topics()
+                dataset_instance.create_mention_pairs_by_topics(use_predicted=True)
 
                 if get_topics=='negative_sampling':
                     dataset_instance.negative_sampling()

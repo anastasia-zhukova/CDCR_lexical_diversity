@@ -35,6 +35,7 @@
   "span_repr_path": "models/span_scorers/events_span_repr_0",
   "span_scorer_path": "models/span_scorers/events_span_scorer_0",
   "model_path": "models/pairwise_scorers",
+  "chosen_model_path": "models/pairwise_scorers",
 
   "experiment_id" : "None"
 

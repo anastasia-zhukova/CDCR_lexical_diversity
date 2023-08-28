@@ -56,13 +56,7 @@ if __name__ == '__main__':
         
         val = CrossEncoderDatasetFull(config, 'val')
 
-        predict_topics = True #TODO Pass by config parameter
-        if predict_topics:
-            mentions_w_predicted_topics = return_mentions_with_predicted_topics(val)
-            val.assign_mentions_with_new_topics(mentions_w_predicted_topics)
-        #Else by default now: use the known topics at inference, I must change it later
-
-        val.create_mention_pairs_by_topics(use_predicted=True)
+        val.create_mention_pairs_by_topics()
         val.prepare_pair_of_mentions()
 
     train_loader = data.DataLoader(train, batch_size=config.batch_size, shuffle=True)

@@ -55,7 +55,7 @@ if __name__ == '__main__':
 
 
     doc_ids, sentence_ids, starts, ends = [], [], [], []
-    logger.info('Number of topics: {}'.format(len(data.topic_list))) #Predict the topics before calling this methid
+    logger.info('Number of topics: {}'.format(len(data.topic_list))) #Predict the topics before calling this method
 
 
     for topic_num, topic in enumerate(data.topics):

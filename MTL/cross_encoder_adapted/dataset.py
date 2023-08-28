@@ -120,13 +120,13 @@ class CrossEncoderDatasetFull(data.Dataset):
     def assign_mentions_with_new_topics(self, modified_mentions):
         self.mentions = modified_mentions
 
-    def create_mention_pairs_by_topics(self,use_predicted=False):
+    def create_mention_pairs_by_topics(self):
 
         for i, m in enumerate(self.mentions):
-            if use_predicted:
-                self.mentions_by_topics[m['predicted_topic']].append(i)
-            else:
-                self.mentions_by_topics[m['topic']].append(i)
+            # if use_predicted:
+            #     self.mentions_by_topics[m['predicted_topic']].append(i)
+            # else:
+            self.mentions_by_topics[m['subtopic_id']].append(i)
 
         for _, mentions in self.mentions_by_topics.items():
             first, second = zip(*list(combinations(range(len(mentions)), 2)))
@@ -195,28 +195,23 @@ class CrossEncoderDatasetFull(data.Dataset):
 
 
     def encode_mention_with_context(self, mention):
-        doc_id, sentence_id = mention['conll_doc_key'], int(mention['sent_id']) #replaced doc_id with conll_doc_key
-
         try:
-            tokens = self.doc_dict[doc_id][sentence_id]
-        except KeyError:
-            raise Exception(f"KeyError occurred for mention {mention['mention_id']} doc_id: {doc_id}, sentence_id: {sentence_id}")
+            tokens = mention['mention_context']
 
-        #I suppose these tokens are the tokens of the whole sentence
-        token_ids = [x[0] for x in tokens]
+            start_idx = mention['tokens_number_context'][0]
+            end_idx = mention['tokens_number_context'][-1]+ 1
 
-        start_idx = token_ids.index(min(mention['tokens_number'])) #tokens_ids replaced by tokens_numbers
-        end_idx = token_ids.index(max(mention['tokens_number'])) + 1
-
-        # x[2] is the token string
-        mention_repr = [x[2] for x in tokens[:start_idx]] + ["[START]"] \
-                       + [x[2] for x in tokens[start_idx:end_idx]] + ["[END]"] \
-                       + [x[2] for x in tokens[end_idx:]]
-        #Then the context would be: 'Tara', 'Reid', 'has', 'entered', 'a', 'rehab', 'program', '.'
-        #In that example, if the mention is entered, then it takes all the tokens from the sentence
-        # prior the mention and those after:
-        #  'went', 'to',  'Promises',  '[START]',  'on',  'Tuesday',  '[END]',  'and',  'that',  'her',  'friends',
-        return ' '.join(mention_repr)
+            mention_repr = [token for token in tokens[:start_idx]] + ["[START]"] \
+            + [token for token in tokens[start_idx:end_idx]] + ["[END]"] \
+            + [token for token in tokens[end_idx:]]
+            #Then the context would be: 'Tara', 'Reid', 'has', 'entered', 'a', 'rehab', 'program', '.'
+            #In that example, if the mention is entered, then it takes all the tokens from the mention's context
+            #  'went', 'to',  'premises',  '[START]',  'on',  'Tuesday',  '[END]',  'and',  'that',  'her',  'friends',
+            return ' '.join(mention_repr)
+        
+        except Exception as e:
+            print(f"Error processing mention with ID: {mention['mention_id']}")
+            raise e
 
 
     def prepare_mention_representation(self, mentions):

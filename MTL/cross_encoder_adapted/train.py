@@ -78,8 +78,12 @@ if __name__ == '__main__':
     for name, param in cross_encoder_single.model.named_parameters():
         param.requires_grad = any(layer_name in name for layer_name in unfreeze_layers)
 
-    # Unfreeze the parameters of the linear layer
-    for param in cross_encoder_single.linear.parameters():
+    # Unfreeze the parameters of the linear layers
+    for param in cross_encoder_single.linear_cdcr.parameters():
+        param.requires_grad = True
+
+    # Unfreeze the parameters of the linear layers
+    for param in cross_encoder_single.linear_pi.parameters():
         param.requires_grad = True
 
     ## Optimizer and loss function

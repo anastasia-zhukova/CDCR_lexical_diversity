@@ -113,7 +113,7 @@ if __name__ == '__main__':
             before_sep = [parts[0] for parts in (string.split("[SEP]") for string in batch_x)]
             after_sep = [parts[1] for parts in (string.split("[SEP]") for string in batch_x)]
 
-            bert_tokens = cross_encoder.tokenizer(text=before_sep,text_pair=after_sep,add_special_tokens=True,padding=True,truncation=True)
+            bert_tokens = cross_encoder_single.tokenizer(text=before_sep,text_pair=after_sep,add_special_tokens=True,padding=True,truncation=True)
             input_ids = torch.tensor(bert_tokens['input_ids'], device=device)
             attention_mask = torch.tensor(bert_tokens['attention_mask'], device=device)
 
@@ -167,7 +167,7 @@ if __name__ == '__main__':
         cross_encoder.eval()
 
         for batch_x, batch_y,instance_id,dataset_task in tqdm(val_loader):
-            bert_tokens = cross_encoder.module.tokenizer(batch_x, pad_to_max_length=True)
+            bert_tokens = cross_encoder_single.tokenizer(batch_x, pad_to_max_length=True)
             input_ids = torch.tensor(bert_tokens['input_ids'], device=device)
             attention_mask = torch.tensor(bert_tokens['attention_mask'], device=device)
 
@@ -222,7 +222,8 @@ if __name__ == '__main__':
         if current_f1 > best_f1:
             best_f1 = current_f1
             cross_encoder_single.model.save_pretrained(os.path.join(out_dir, 'bert'))
-            torch.save(cross_encoder_single.linear.state_dict(), os.path.join(out_dir, 'linear'))
+            torch.save(cross_encoder_single.linear_cdcr.state_dict(), os.path.join(out_dir, 'linear_cdcr'))
+            torch.save(cross_encoder_single.linear_cdcr.state_dict(), os.path.join(out_dir, 'linear_pi'))
 
         f1.append(eval.get_f1())
     print("F1 values",f1)

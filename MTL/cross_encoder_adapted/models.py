@@ -157,7 +157,7 @@ class FullCrossEncoder(nn.Module):
         # Get the unique values of dataset_id
         # Initialize the output tensor with zeros
         x = torch.zeros((dataset_task.shape[0],1))
-        x = x.to(output.device)
+        x = x.to(input_ids.device)
 
         unique_ids = torch.unique(dataset_task)
 

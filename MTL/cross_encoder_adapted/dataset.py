@@ -115,12 +115,13 @@ class CrossEncoderDatasetFull(data.Dataset):
         
         self.instances = []
         self.instance_ids = []
-        self.task=0 #CDCR
 
         self.create_mention_pairs_by_topics()
         if split_name=="train":
             self.negative_sampling()
         self.prepare_pair_of_mentions()
+
+        self.task=[0]*len(self.instances) #CDCR
 
     def assign_mentions_with_new_topics(self, modified_mentions):
         self.mentions = modified_mentions
@@ -242,7 +243,7 @@ class CrossEncoderDatasetFull(data.Dataset):
 
 
     def __getitem__(self, index):
-        return self.instances[index], self.labels[index].unsqueeze(-1), self.instance_ids[index], self.task
+        return self.instances[index], self.labels[index].unsqueeze(-1), self.instance_ids[index], self.task[index]
 
 
 ## Paraphrase dataset
@@ -266,8 +267,7 @@ class ParaphraseDataset(data.Dataset):
         
         #Create key with index 
         self.instance_ids = [f"{self.dataset_id}[SEP]{s1}" for s1 in self.dataset['idx']]
-        self.task=1 #Paraphrase identification
-
+        self.task=[1]*len(self.instances) #Paraphrase identification
 
 
     def __len__(self):
@@ -275,7 +275,7 @@ class ParaphraseDataset(data.Dataset):
 
 
     def __getitem__(self, index):
-        return self.instances[index], self.labels[index].unsqueeze(-1), self.instance_ids[index], self.task
+        return self.instances[index], self.labels[index].unsqueeze(-1), self.instance_ids[index], self.task[index]
 
 
 
@@ -323,7 +323,7 @@ class CrossEncoderMixedDatasetFull(data.Dataset):
             self.instances.extend(dataset_instance.instances)
             self.labels.extend(dataset_instance.labels)
             self.instance_ids.extend(dataset_instance.instance_ids)
-            self.datasets_task.extend([dataset_instance.task]*len(dataset_instance.instances))
+            self.datasets_task.extend(dataset_instance.task)
 
     def __len__(self):
         return len(self.labels)

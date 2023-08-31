@@ -2,8 +2,6 @@
   "gpu_num" : [0],
   "bert_model": "roberta-large",
   "roberta_model": "roberta-large",
-  "bert_hidden_size": 512,
-  "hidden_layer": 512,
   "dropout": 0.3,
   "with_mention_width": true,
   "with_head_attention": true,
@@ -31,7 +29,7 @@
   "exact": false,
 
   "log_path": "logs/pairwise_scorer/",
-  "data_folder": "mrpc",
+  "data_folder": "../../CDCR/data/ECBplus-prep/output_data/",
   "span_repr_path": "models/span_scorers/events_span_repr_0",
   "span_scorer_path": "models/span_scorers/events_span_scorer_0",
   "model_path": "models/pairwise_scorers",

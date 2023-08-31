@@ -133,20 +133,46 @@ class FullCrossEncoder(nn.Module):
 
 
         self.hidden_size = self.model.config.hidden_size
-        # self.linear = nn.Linear(self.hidden_size, 1)
 
-        self.linear = nn.Sequential(
+        self.linear_cdcr = nn.Sequential(
             nn.Linear(self.hidden_size, 128),
             nn.ReLU(),
             nn.Linear(128, 1)
         )
-        self.linear.apply(init_weights)
+
+        self.linear_pi = nn.Sequential(
+            nn.Linear(self.hidden_size, 128),
+            nn.ReLU(),
+            nn.Linear(128, 1)
+        )
+        # I probably need some normalization here
+        self.linear_cdcr.apply(init_weights)
+        self.linear_pi.apply(init_weights)
 
 
-
-    def forward(self, input_ids, attention_mask):
+    def forward(self, input_ids, attention_mask,dataset_task):
         output= self.model(input_ids, attention_mask)
         cls_vector = output.last_hidden_state[:, 0, :]
-        scores = self.linear(cls_vector)
 
-        return scores
+        # Get the unique values of dataset_id
+        # Initialize the output tensor with zeros
+        x = torch.zeros((dataset_task.shape[0],1))
+        x = x.to(output.device)
+
+        unique_ids = torch.unique(dataset_task)
+
+        for unique_id in unique_ids:
+            # Extract the data corresponding to the current unique_id
+            mask_current = (dataset_task == unique_id)
+            cls_embedding_current = cls_vector[mask_current]
+            
+            # Apply the corresponding decoder based on the condition
+            if unique_id ==0: #CDCR
+                logit_scores = self.linear_cdcr(cls_embedding_current)
+                
+            else: 
+                logit_scores = self.linear_pi(cls_embedding_current)
+                
+            x[mask_current] = logit_scores
+
+        return x

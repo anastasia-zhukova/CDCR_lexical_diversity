@@ -9,8 +9,6 @@ import torch.optim as optim
 from transformers import AdamW, get_linear_schedule_with_warmup
 from datetime import datetime
 
-
-
 def create_logger(config, create_file=True):
     logging.basicConfig(datefmt='%Y-%m-%d %H:%M:%S')
     logger = logging.getLogger('simple_example')
@@ -105,10 +103,6 @@ def send_email(user, pwd, recipient, subject, body):
     except:
         print("failed to send mail")
 
-
-
-
-
 def align_ecb_bert_tokens(ecb_tokens, bert_tokens):
     bert_to_ecb_ids = []
     relative_char_pointer = 0
@@ -132,3 +126,13 @@ def align_ecb_bert_tokens(ecb_tokens, bert_tokens):
             raise ValueError((bert_token, ecb_token))
 
     return bert_to_ecb_ids
+
+
+def resolve_data_path(datasets_config):
+    #Set data paths according to the common_data_folder path in the config_datasets file
+    common_data_folder = datasets_config.get_string("common_data_folder")
+    for key in datasets_config:
+        if isinstance(datasets_config[key], dict) and "data_folder" in datasets_config[key]:
+            datasets_config[key]["data_folder"] = datasets_config[key]["data_folder"].replace("${common_data_folder}", common_data_folder)
+
+    return datasets_config

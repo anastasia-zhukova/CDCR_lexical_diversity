@@ -8,13 +8,8 @@ from torch.utils import data
 
 from models import FullCrossEncoder
 from evaluator import Evaluation
-from dataset import CrossEncoderDatasetFull, CrossEncoderMixedDatasetFull
+from dataset import CrossEncoderDatasetFull, CrossEncoderMixedDatasetFull, ParaphraseDataset
 from utils import *
-from cluster_documents import return_mentions_with_predicted_topics
-
-
-
-
 
 if __name__ == '__main__':
     #Read config_paiwise.json file and config_datasets.json file
@@ -23,17 +18,11 @@ if __name__ == '__main__':
     parser.add_argument('--dataset_config', type=str, default='configs/config_datasets.json')
     parser.add_argument('--config_experiments', type=str, default='configs/config_experiments.json')
     args = parser.parse_args()
+
     config = pyhocon.ConfigFactory.parse_file(args.config)
     datasets_config = pyhocon.ConfigFactory.parse_file(args.dataset_config)
+    datasets_config = resolve_data_path(datasets_config)
     config_experiments = pyhocon.ConfigFactory.parse_file(args.config_experiments)
-
-    #Set data paths according to the common_data_folder path in the config_datasets file
-    common_data_folder = datasets_config.get_string("common_data_folder")
-    for key in datasets_config:
-        if isinstance(datasets_config[key], dict) and "data_folder" in datasets_config[key]:
-            datasets_config[key]["data_folder"] = datasets_config[key]["data_folder"].replace("${common_data_folder}", common_data_folder)
-
- 
 
     #Initialize logger and model path
     fix_seed(config)
@@ -49,33 +38,26 @@ if __name__ == '__main__':
         #test = CrossEncoderMixedDatasetFull(config,datasets_config,config_experiments[config.experiment_id]['test'])
 
     else:
-        train = CrossEncoderDatasetFull(config, 'train')
-        train.create_mention_pairs_by_topics()
-        train.negative_sampling()
-        train.prepare_pair_of_mentions()
-        
-        val = CrossEncoderDatasetFull(config, 'val')
+        if config.data_folder == "mrpc" or "HoW_DatasetDict" in config.data_folder:
+            train = ParaphraseDataset(config, 'train') 
+            val = ParaphraseDataset(config, 'validation')
+        else:
+            train = CrossEncoderDatasetFull(config, 'train') 
+            val = CrossEncoderDatasetFull(config, 'val')
 
-        val.create_mention_pairs_by_topics()
-        val.prepare_pair_of_mentions()
-
+    #Create data_loaders
     train_loader = data.DataLoader(train, batch_size=config.batch_size, shuffle=True)
-
     val_loader = data.DataLoader(val, batch_size=config.batch_size, shuffle=False)
 
     device_ids = config.gpu_num
     device = torch.device("cuda:{}".format(device_ids[0]))
 
-
     ## Models' initiation
     logger.info('Init models')
-    # span_repr = SpanEmbedder(config, device).to(device)
-    # span_scorer = SpanScorer(config).to(device)
     cross_encoder_single = FullCrossEncoder(config).to(device)
     cross_encoder = torch.nn.DataParallel(cross_encoder_single, device_ids=device_ids)
 
-
-    # Define the names of the layers you want to unfreeze
+    # Define the names of the layers to unfreeze
     unfreeze_layers = [
         "encoder.layer.21.output.dense.weight",
         "encoder.layer.21.output.dense.bias",
@@ -92,34 +74,25 @@ if __name__ == '__main__':
         "encoder.layer.23.output.LayerNorm.weight",
         "encoder.layer.23.output.LayerNorm.bias",
     ]
-    #Unfreezes layers in list
+    #Unfreezes Roberta layers in list
     for name, param in cross_encoder_single.model.named_parameters():
         param.requires_grad = any(layer_name in name for layer_name in unfreeze_layers)
 
     # Unfreeze the parameters of the linear layer
     for param in cross_encoder_single.linear.parameters():
         param.requires_grad = True
-    # if config.training_method in ('pipeline', 'continue') and not config.use_gold_mentions:
-    #     span_repr.load_state_dict(torch.load(config.span_repr_path, map_location=device))
-    #     span_scorer.load_state_dict(torch.load(config.span_scorer_path, map_location=device))
-
 
     ## Optimizer and loss function
     criterion = get_loss_function(config)
     optimizer = get_optimizer(config, [cross_encoder])
     scheduler = get_scheduler(optimizer, total_steps=config.epochs * len(train_loader))
 
-
-    # logger.info('Number of parameters of mention extractor: {}'.format(
-    #     count_parameters(span_repr) + count_parameters(span_scorer)))
     logger.info('Number of parameters of the pairwise classifier: {}'.format(
         count_parameters(cross_encoder)))
 
     ##################################################################################
     ####                    TRAINING
     ##################################################################################
-
-
 
     f1 = []
     best_f1 = 0.0
@@ -132,14 +105,17 @@ if __name__ == '__main__':
         cross_encoder.train()
 
         for batch_x, batch_y, instance_id, dataset_task in tqdm(train_loader):
+            #Separate sentences from batch to add the tokenizers special tokens
+            before_sep = [parts[0] for parts in (string.split("[SEP]") for string in batch_x)]
+            after_sep = [parts[1] for parts in (string.split("[SEP]") for string in batch_x)]
 
-            bert_tokens = cross_encoder.module.tokenizer(batch_x, pad_to_max_length=True)
+            bert_tokens = cross_encoder.tokenizer(text=before_sep,text_pair=after_sep,add_special_tokens=True,padding=True,truncation=True)
             input_ids = torch.tensor(bert_tokens['input_ids'], device=device)
             attention_mask = torch.tensor(bert_tokens['attention_mask'], device=device)
 
             optimizer.zero_grad()
             cross_encoder.zero_grad()
-            scores = cross_encoder(input_ids, attention_mask)
+            scores = cross_encoder(input_ids, attention_mask,dataset_task)
 
             batch_y = batch_y.view(-1, 1)
             loss = criterion(scores, batch_y.to(device))
@@ -192,7 +168,7 @@ if __name__ == '__main__':
             attention_mask = torch.tensor(bert_tokens['attention_mask'], device=device)
 
             with torch.no_grad():
-                scores = cross_encoder(input_ids, attention_mask)
+                scores = cross_encoder(input_ids, attention_mask,dataset_task)
 
             torch.cuda.empty_cache()
             

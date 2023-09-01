@@ -294,7 +294,6 @@ class CrossEncoderMixedDatasetFull(data.Dataset):
         for dataset_config_dict in experiment_split:
             dataset_key = dataset_config_dict['config_key']
             split = dataset_config_dict['split']
-            get_topics =dataset_config_dict['get_topics']
             task = dataset_config_dict['task']
 
             #Override config file data folder with the one from the current dataset

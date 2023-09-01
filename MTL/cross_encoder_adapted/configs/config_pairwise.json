@@ -35,7 +35,7 @@
   "model_path": "models/pairwise_scorers",
   "chosen_model_path": "models/pairwise_scorers",
 
-  "experiment_id" : "None"
+  "experiment_id" : "Experiment3"
 
 
 }

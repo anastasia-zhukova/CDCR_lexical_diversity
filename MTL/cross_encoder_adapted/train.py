@@ -5,7 +5,7 @@ from itertools import combinations
 from sklearn.utils import shuffle
 from torch.utils import data
 
-
+from data_loader import MultiTaskBatchSampler
 from models import FullCrossEncoder
 from evaluator import Evaluation
 from dataset import CrossEncoderDatasetFull, CrossEncoderMixedDatasetFull, ParaphraseDataset
@@ -45,9 +45,15 @@ if __name__ == '__main__':
             train = CrossEncoderDatasetFull(config, 'train') 
             val = CrossEncoderDatasetFull(config, 'val')
 
+    #Create custom sampler
+    sampler = MultiTaskBatchSampler(        dataset=train,
+        batch_size=64,
+        total_epochs=config.epochs,
+        sampling = "sequential")
+    
     #Create data_loaders
-    train_loader = data.DataLoader(train, batch_size=config.batch_size, shuffle=True)
-    val_loader = data.DataLoader(val, batch_size=config.batch_size, shuffle=False)
+    train_loader = data.DataLoader(train,batch_sampler=sampler, batch_size=config.batch_size, pin_memory=True)
+    val_loader = data.DataLoader(val, batch_size=config.batch_size, shuffle=False, pin_memory=True)
 
     device_ids = config.gpu_num
     device = torch.device("cuda:{}".format(device_ids[0]))
@@ -57,7 +63,7 @@ if __name__ == '__main__':
     cross_encoder_single = FullCrossEncoder(config).to(device)
     cross_encoder = torch.nn.DataParallel(cross_encoder_single, device_ids=device_ids)
 
-    # Define the names of the layers to unfreeze
+    # Define the names of the layers to freeze
     unfreeze_layers = [
         "encoder.layer.21.output.dense.weight",
         "encoder.layer.21.output.dense.bias",
@@ -100,7 +106,6 @@ if __name__ == '__main__':
 
     f1 = []
     best_f1 = 0.0
-    update_interval = 10
 
     for epoch in range(config.epochs):
         logger.info('Epoch: {}'.format(epoch))

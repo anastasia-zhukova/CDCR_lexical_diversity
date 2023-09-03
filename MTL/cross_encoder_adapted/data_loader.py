@@ -67,10 +67,11 @@ class MultiTaskBatchSampler(BatchSampler):
     def create_train_data_list(self):
         train_data_list = []
 
-        if self.sampling=="simulteneous":
+        if self.sampling=="simultaneous":
             #List of batches randomly sampled from all datasets
             train_data_list.append(self._get_shuffled_index_batches(len(self._dataset), self._batch_size))
         else:
+            initial_index = 0
             for dataset in self.datasets:
                 # if bin_on:
                 #     train_data_list.append(
@@ -83,18 +84,21 @@ class MultiTaskBatchSampler(BatchSampler):
                 #     )
                 # else:
                 #Batches of one dataset only
-                train_data_list.append(
-                        self._get_shuffled_index_batches(len(dataset), self._batch_size))
-                
+                shuffled_batch_indices = self._get_shuffled_index_batches(len(dataset), self._batch_size)
+
+                for shuffled_batch in shuffled_batch_indices:
+                    train_data_list.append([[dataset.indices[i] for i in shuffled_batch]])
+                        
         return train_data_list
 
     @staticmethod
     def _get_shuffled_index_batches(dataset_len, batch_size):
+        indices = list(range(dataset_len))
+        random.shuffle(indices) 
         index_batches = [
-            list(range(i, min(i + batch_size, dataset_len)))
+            indices[i:i + batch_size]
             for i in range(0, dataset_len, batch_size)
         ]
-        random.shuffle(index_batches)
         return index_batches
 
     @staticmethod
@@ -137,6 +141,7 @@ class MultiTaskBatchSampler(BatchSampler):
                 self._train_data_list
             )
         elif self.sampling=='annealed':
+            #not revised
             all_indices = self._gen_task_indices_annealed(
                 self._train_data_list,self.current_epoch,
             self.total_epochs
@@ -151,13 +156,8 @@ class MultiTaskBatchSampler(BatchSampler):
             
             try:
                 batch = next(all_iters[local_task_idx])
-                yield_list = []
+                yield [sample_id for sample_id in batch]
 
-                for sample_id in batch:
-                    instance, label, instance_id, task = self._dataset[sample_id]
-                    yield_list.append((instance, label, instance_id, task))
-
-                yield yield_list
             except StopIteration:
                 # The current task has no more batches,stop the whole training
                 # Could result in lower performance, we must see.

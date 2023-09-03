@@ -288,7 +288,7 @@ class CrossEncoderMixedDatasetFull(data.Dataset):
         self.instances = []
         self.labels = []
         self.instance_ids = []
-        self.datasets_task = []
+        self.task = []
 
 
         for dataset_config_dict in experiment_split:
@@ -322,7 +322,7 @@ class CrossEncoderMixedDatasetFull(data.Dataset):
             self.instances.extend(dataset_instance.instances)
             self.labels.extend(dataset_instance.labels)
             self.instance_ids.extend(dataset_instance.instance_ids)
-            self.datasets_task.extend(dataset_instance.task)
+            self.task.extend(dataset_instance.task)
 
     def __len__(self):
         return len(self.labels)
@@ -331,7 +331,7 @@ class CrossEncoderMixedDatasetFull(data.Dataset):
         instance = self.instances[index]
         label = self.labels[index]
         instance_id = self.instance_ids[index]
-        task = self.datasets_task[index]
+        task = self.task[index]
 
         return instance, label, instance_id, task
 

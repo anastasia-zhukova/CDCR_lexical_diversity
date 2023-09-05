@@ -1,0 +1,103 @@
+{
+    "Experiment1": {
+        "train": [
+            {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "train", "negative_sampling": true},
+            {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "train", "negative_sampling": true}
+        ],
+        "val": [
+            {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "val", "negative_sampling": false},
+            {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "val", "negative_sampling": false}
+        ],
+        "test": [
+            {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "test", "negative_sampling": false},
+            {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "test", "negative_sampling": false}
+        ]
+    },
+    "Experiment2": {
+        "train": [
+            {"task": "PI","config_key": "MRPC", "split": "train", "negative_sampling": false}
+        ],
+        "val": [
+            {"task": "PI","config_key": "MRPC", "split": "validation", "negative_sampling": false}
+        ],
+        "test": [
+            {"task": "PI","config_key": "MRPC", "split": "test", "negative_sampling": false}
+        ]
+    },
+    "Experiment3": {
+        "train": [
+            {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "train", "negative_sampling": true},
+            {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "train", "negative_sampling": true},
+            {"task": "PI","config_key": "MRPC", "split": "train", "negative_sampling": false}
+        ],
+        "val": [
+            {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "val", "negative_sampling": false},
+            {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "val", "negative_sampling": false},
+            {"task": "PI","config_key": "MRPC", "split": "validation", "negative_sampling": false}
+        ],
+        "test": [
+            {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "test", "negative_sampling": false},
+            {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "test", "negative_sampling": false},
+            {"task": "PI","config_key": "MRPC", "split": "test", "negative_sampling": false}
+
+        ]
+    },
+    "Experiment4": {
+        "train": [
+            {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "train", "negative_sampling": true},
+            {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "train", "negative_sampling": true},
+            {"task": "PI","config_key": "MRPC", "split": "train", "negative_sampling": false},
+            {"task": "PI","config_key": "HOW", "split": "test", "negative_sampling": false}
+        ],
+        "val": [
+            {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "val", "negative_sampling": false},
+            {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "val", "negative_sampling": false},
+            {"task": "PI","config_key": "MRPC", "split": "validation", "negative_sampling": false},
+            {"task": "PI","config_key": "HOW", "split": "validation", "negative_sampling": false}
+        ],
+        "test": [
+            {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "test", "negative_sampling": false},
+            {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "test", "negative_sampling": false},
+            {"task": "PI","config_key": "MRPC", "split": "train", "negative_sampling": false},
+            {"task": "CDCR","config_key": "NEWSWCL50_ENTITY_CONFIG", "split": "train", "negative_sampling": false},
+            {"task": "CDCR","config_key": "NEWSWCL50_ENTITY_CONFIG", "split": "val", "negative_sampling": false},
+            {"task": "CDCR","config_key": "NEWSWCL50_ENTITY_CONFIG", "split": "test", "negative_sampling": false},
+            {"task": "CDCR","config_key": "NEWSWCL50_EVENT_CONFIG", "split": "train", "negative_sampling": false},
+            {"task": "CDCR","config_key": "NEWSWCL50_EVENT_CONFIG", "split": "val", "negative_sampling": false},
+            {"task": "CDCR","config_key": "NEWSWCL50_EVENT_CONFIG", "split": "test", "negative_sampling": false}
+
+        ]
+    },
+    "Experiment5": {
+        "train": [
+            {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "train", "negative_sampling": true},
+            {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "train", "negative_sampling": true},
+            {"task": "CDCR","config_key": "FCC_T_ENTITY_CONFIG", "split": "train", "negative_sampling": true},
+            {"task": "CDCR","config_key": "FCC_T_EVENT_CONFIG", "split": "train", "negative_sampling": true},
+            {"task": "PI","config_key": "MRPC", "split": "train", "negative_sampling": false},
+            {"task": "PI","config_key": "HOW", "split": "test", "negative_sampling": false}
+        ],
+        "val": [
+            {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "val", "negative_sampling": false},
+            {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "val", "negative_sampling": false},
+            {"task": "CDCR","config_key": "FCC_T_ENTITY_CONFIG", "split": "val", "negative_sampling": false},
+            {"task": "CDCR","config_key": "FCC_T_EVENT_CONFIG", "split": "val", "negative_sampling": false},
+            {"task": "PI","config_key": "MRPC", "split": "validation", "negative_sampling": false},
+            {"task": "PI","config_key": "HOW", "split": "validation", "negative_sampling": false}
+        ],
+        "test": [
+            {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "test", "negative_sampling": false},
+            {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "test", "negative_sampling": false},
+            {"task": "CDCR","config_key": "FCC_T_ENTITY_CONFIG", "split": "test", "negative_sampling": false},
+            {"task": "CDCR","config_key": "FCC_T_EVENT_CONFIG", "split": "test", "negative_sampling": false},
+            {"task": "PI","config_key": "MRPC", "split": "test", "negative_sampling": false},
+            {"task": "CDCR","config_key": "NEWSWCL50_ENTITY_CONFIG", "split": "train", "negative_sampling": false},
+            {"task": "CDCR","config_key": "NEWSWCL50_ENTITY_CONFIG", "split": "val", "negative_sampling": false},
+            {"task": "CDCR","config_key": "NEWSWCL50_ENTITY_CONFIG", "split": "test", "negative_sampling": false},
+            {"task": "CDCR","config_key": "NEWSWCL50_EVENT_CONFIG", "split": "train", "negative_sampling": false},
+            {"task": "CDCR","config_key": "NEWSWCL50_EVENT_CONFIG", "split": "val", "negative_sampling": false},
+            {"task": "CDCR","config_key": "NEWSWCL50_EVENT_CONFIG", "split": "test", "negative_sampling": false}
+
+        ]
+    }
+}

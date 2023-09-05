@@ -1,0 +1,22 @@
+*.bin
+*.zip
+*.src
+*.tgt
+*.pt
+.ipynb_checkpoints
+__pycache__/
+
+#Folder with cross-encoder runs
+/CDCR/models/CDLM-main/cross_encoder/runs/
+/CDCR/models/e2e_coref/logs
+/CDCR/models/e2e_coref/models/pairwise_scorers
+/MTL/cross_encoder_adapted/logs
+/MTL/PGKPR_adapted/models
+/MTL/cross_encoder_adapted/slurm_files
+/MTL/PGKPR/slurm_files
+/MTL/PGKPR_adapted/slurm_files
+/MTL/cross_encoder_adapted/models/pairwise_scorers/
+#CSV and JSON from PGKPR
+MTL/PGKPR/**/*.csv
+MTL/PGKPR/**/*.json
+/CDCR/data/*/

@@ -1,0 +1,4 @@
+outs:
+- md5: d318d96b7a67cbabf0bd7db84288bc93
+  size: 60833553
+  path: train.txt.tgt

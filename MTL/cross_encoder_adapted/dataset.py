@@ -90,7 +90,7 @@ class CrossEncoderDatasetInstances(data.Dataset):
 
 class CrossEncoderDatasetFull(data.Dataset):
 
-    def __init__(self, config,split_name='train', same_lemma=False):
+    def __init__(self, config,split_name='train', negative_sampling=False):
         self.dataset_id = "/".join([config.data_folder.split('/')[-3],config.mention_type,split_name])
         self.read_files(config,split_name) #Sets self.documents, self.topics and self.mentions belonging to the topics
         # self.lemmas = np.asarray([x['lemmas'] for x in self.mentions]) #Do not know yet why we need the lemmas}
@@ -106,18 +106,11 @@ class CrossEncoderDatasetFull(data.Dataset):
         self.second = []
         self.labels = []
 
-        #Don't know why they do this
-        # if same_lemma:
-        #     idx = (self.lemmas[self.first] == self.lemmas[self.second]).nonzero()
-        #     self.first = self.first[idx]
-        #     self.second = self.second[idx]
-        #     self.labels = self.labels[idx]
-        
         self.instances = []
         self.instance_ids = []
 
         self.create_mention_pairs_by_topics()
-        if split_name=="train":
+        if negative_sampling:
             self.negative_sampling()
         self.prepare_pair_of_mentions()
 
@@ -127,14 +120,16 @@ class CrossEncoderDatasetFull(data.Dataset):
         self.mentions = modified_mentions
 
     def create_mention_pairs_by_topics(self):
-
         for i, m in enumerate(self.mentions):
             # if use_predicted:
             #     self.mentions_by_topics[m['predicted_topic']].append(i)
             # else:
             self.mentions_by_topics[m['subtopic_id']].append(i)
 
-        for _, mentions in self.mentions_by_topics.items():
+        for key, mentions in self.mentions_by_topics.items():
+            if len(mentions)==1:
+                print("topic",key, " has only one mention. Mentions pair not created for dataset ",self.dataset_id)
+                continue
             first, second = zip(*list(combinations(range(len(mentions)), 2)))
             mentions = torch.tensor(mentions)
             first, second = torch.tensor(first), torch.tensor(second)
@@ -295,6 +290,7 @@ class CrossEncoderMixedDatasetFull(data.Dataset):
             dataset_key = dataset_config_dict['config_key']
             split = dataset_config_dict['split']
             task = dataset_config_dict['task']
+            negative_sampling = dataset_config_dict['negative_sampling']
 
             #Override config file data folder with the one from the current dataset
             temp_folder = datasets_config[dataset_key]['data_folder'] 
@@ -302,12 +298,17 @@ class CrossEncoderMixedDatasetFull(data.Dataset):
             temp_config.put('data_folder',temp_folder)
 
             dataset_instance = None
+            print("-----------------")
+            print("dataset_key", dataset_key)
+            print("split", split)
+            print("negative_sampling", negative_sampling)
 
             if task=="CDCR":
                 temp_mention_type = datasets_config[dataset_key]['mention_type']
                 temp_config.put('mention_type',temp_mention_type)
-
-                dataset_instance = CrossEncoderDatasetFull(temp_config,split )
+                print("mention_type", temp_mention_type)
+                dataset_instance = CrossEncoderDatasetFull(temp_config,split,negative_sampling )
+                print("num_mentions", len(dataset_instance.mentions))
                 self.mentions.extend(dataset_instance.mentions)
 
                 # Commented out since I am not predicting topics for now
@@ -316,9 +317,12 @@ class CrossEncoderMixedDatasetFull(data.Dataset):
                 #     dataset_instance.assign_mentions_with_new_topics(mentions_w_predicted_topics)
                 #     #predict topics
 
-            if task=="PI":
+            elif task=="PI":
                 dataset_instance = ParaphraseDataset(temp_config,split )
+            else:
+                raise ValueError("Invalid task value. Supported values are 'CDCR' and 'PI'.")
 
+            print("num_instances",len(dataset_instance.instances))
             self.instances.extend(dataset_instance.instances)
             self.labels.extend(dataset_instance.labels)
             self.instance_ids.extend(dataset_instance.instance_ids)

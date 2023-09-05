@@ -1,4 +1,5 @@
 import argparse
+import json
 import pyhocon
 from tqdm import tqdm
 from itertools import combinations
@@ -106,17 +107,21 @@ if __name__ == '__main__':
 
     f1 = []
     best_f1 = 0.0
+    train_results_per_epoch = {}
+    val_results_per_epoch= {}
 
     for epoch in range(config.epochs):
         logger.info('Epoch: {}'.format(epoch))
         accumulate_loss = 0
         number_of_positive_pairs, number_of_pairs = 0, 0
         cross_encoder.train()
+        all_train_scores, all_train_labels, all_train_identifiers = [], [], []
 
         for batch_x, batch_y, instance_id, dataset_task in tqdm(train_loader):
             #Separate sentences from batch to add the tokenizers special tokens
             before_sep = [parts[0] for parts in (string.split("[SEP]") for string in batch_x)]
             after_sep = [parts[1] for parts in (string.split("[SEP]") for string in batch_x)]
+            all_train_identifiers.extend([extract_dataset_info_from_instance_id(id) for id in instance_id])
 
             bert_tokens = cross_encoder_single.tokenizer(text=before_sep,text_pair=after_sep,add_special_tokens=True,padding=True,truncation=True)
             input_ids = torch.tensor(bert_tokens['input_ids'], device=device)
@@ -125,8 +130,11 @@ if __name__ == '__main__':
             optimizer.zero_grad()
             cross_encoder.zero_grad()
             scores = cross_encoder(input_ids, attention_mask,dataset_task)
+            all_train_scores.extend(scores.squeeze(1))
 
             batch_y = batch_y.view(-1, 1)
+            all_train_labels.extend(scores.squeeze(1))
+
             loss = criterion(scores, batch_y.to(device))
             loss.mean().backward()
             torch.nn.utils.clip_grad_norm_(cross_encoder.parameters(), 1.0)
@@ -160,14 +168,17 @@ if __name__ == '__main__':
         #     generator = data.DataLoader(pairwises, shuffle=True, batch_size=config.batch_size)
         #     loss = fine_tune_bert(cross_encoder, generator, criterion, optimizer, device)
         #     accumulate_loss += loss
-
+        all_train_labels = torch.stack(all_train_labels).tolist()
+        all_train_scores = torch.stack(all_train_scores).tolist()
+        train_strict_preds = [int(score>0) for score in all_train_scores]
+        train_results_per_epoch[epoch] = {'scores':train_strict_preds,'labels':all_train_labels,'identifiers':all_train_identifiers}
 
         logger.info('Number of positive/total pairs: {}/{}'.format(number_of_positive_pairs, number_of_pairs))
         logger.info('Accumulate loss: {}'.format(accumulate_loss))
 
 
         logger.info('Evaluate on the dev set')
-        all_scores, all_labels = [], []
+        all_scores, all_labels,all_identifiers = [], [], []
         number_of_positive_pairs, number_of_pairs = 0, 0
         cross_encoder.eval()
 
@@ -175,6 +186,7 @@ if __name__ == '__main__':
             bert_tokens = cross_encoder_single.tokenizer(batch_x, pad_to_max_length=True)
             input_ids = torch.tensor(bert_tokens['input_ids'], device=device)
             attention_mask = torch.tensor(bert_tokens['attention_mask'], device=device)
+            all_identifiers.extend([extract_dataset_info_from_instance_id(id) for id in instance_id])
 
             with torch.no_grad():
                 scores = cross_encoder(input_ids, attention_mask,dataset_task)
@@ -196,16 +208,16 @@ if __name__ == '__main__':
         #     scores, labels = evaluate_model(cross_encoder, generator, device)
         #     torch.cuda.empty_cache()
         #
-            all_scores.extend(scores.squeeze(1))
-            all_labels.extend(batch_y.squeeze(1))
+            all_scores.extend(scores.squeeze())
+            all_labels.extend(batch_y.squeeze())
 
 
 
         all_labels = torch.stack(all_labels)
         all_scores = torch.stack(all_scores)
-
-
         strict_preds = (all_scores > 0).to(torch.int)
+
+        
         eval = Evaluation(strict_preds, all_labels.to(device))
         logger.info('Number of predictions: {}/{}'.format(strict_preds.sum(), len(strict_preds)))
         logger.info('Number of positive pairs: {}/{}'.format(len((all_labels == 1).nonzero()),
@@ -216,7 +228,8 @@ if __name__ == '__main__':
         logger.info('Strict - Recall: {}, Precision: {}, F1: {}, Accuracy: {}'.
                     format(eval.get_recall(), eval.get_precision(), eval.get_f1(), eval.get_accuracy()))
 
-
+        val_results_per_epoch[epoch]= {'scores':strict_preds.tolist(),'labels':all_labels.tolist(),'identifiers':all_identifiers}
+        
         out_dir = os.path.join(config.model_path, f"{config.experiment_id}",f"{'base' if 'base' in config.roberta_model else 'large'}_{config.batch_size}",
                       f"{config.sampling}_sampling",f"checkpoint_{epoch}")
 
@@ -231,4 +244,18 @@ if __name__ == '__main__':
             torch.save(cross_encoder_single.linear_cdcr.state_dict(), os.path.join(out_dir, 'linear_pi'))
 
         f1.append(eval.get_f1())
+
+    # Specify the filename
+
+    filename_train = os.path.join(out_dir, "train_results.json")
+    filename_val = os.path.join(out_dir, "val_results.json")
+
+    # Write the JSON data to the file
+    with open(filename_train, 'w') as json_file:
+        json.dump(train_results_per_epoch, json_file, indent=4)
+
+    # Write the JSON data to the file
+    with open(filename_val, 'w') as json_file:
+        json.dump(val_results_per_epoch, json_file, indent=4)
+        
     print("F1 values",f1)

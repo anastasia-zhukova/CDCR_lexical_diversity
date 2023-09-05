@@ -136,3 +136,14 @@ def resolve_data_path(datasets_config):
             datasets_config[key]["data_folder"] = datasets_config[key]["data_folder"].replace("${common_data_folder}", common_data_folder)
 
     return datasets_config
+
+def extract_dataset_info_from_instance_id(instance_id):
+    dict_dataset = {"mention_type":"NA"}
+    dataset_info = instance_id.split("[SEP]", 1)[0]
+    sub_parts = dataset_info.split("/")
+    dict_dataset["dataset_name"] = sub_parts[0]
+    dict_dataset["split"] = sub_parts[-1]
+    if len(sub_parts)>2:
+        dict_dataset["mention_type"] = sub_parts[1]
+    
+    return dict_dataset

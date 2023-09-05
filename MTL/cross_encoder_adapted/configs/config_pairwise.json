@@ -17,7 +17,7 @@
   "segment": true,
 
   "random_seed": 0,
-  "epochs": 3,
+  "epochs": 5,
   "batch_size": 256,
   "learning_rate": 1e-3,
   "weight_decay": 0,
@@ -36,7 +36,7 @@
   "model_path": "models/pairwise_scorers",
   "chosen_model_path": "models/pairwise_scorers",
 
-  "experiment_id" : "Experiment3"
+  "experiment_id" : "Experiment2"
 
 
 }

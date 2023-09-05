@@ -27,6 +27,7 @@
   "segment_window": 512,
   "neg_samp": true,
   "exact": false,
+  "sampling":"sequential",
 
   "log_path": "logs/pairwise_scorer/",
   "data_folder": "../../CDCR/data/ECBplus-prep/output_data/",

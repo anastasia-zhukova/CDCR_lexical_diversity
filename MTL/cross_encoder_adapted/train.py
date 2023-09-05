@@ -49,7 +49,7 @@ if __name__ == '__main__':
     sampler = MultiTaskBatchSampler(        dataset=train,
         batch_size=config.batch_size,
         total_epochs=config.epochs,
-        sampling = "sequential")
+        sampling = config.sampling)
     
     #Create data_loaders
     train_loader = data.DataLoader(train,batch_sampler=sampler,pin_memory=True)
@@ -217,9 +217,9 @@ if __name__ == '__main__':
                     format(eval.get_recall(), eval.get_precision(), eval.get_f1(), eval.get_accuracy()))
 
 
-        out_dir = os.path.join(config.model_path, '{}_{}'.format(
-            'base' if 'base' in config.roberta_model else 'large', config.batch_size),
-            'checkpoint_{}'.format(epoch))
+        out_dir = os.path.join(config.model_path, f"{config.experiment_id}",f"{'base' if 'base' in config.roberta_model else 'large'}_{config.batch_size}",
+                      f"{config.sampling}_sampling",f"checkpoint_{epoch}")
+
         if not os.path.exists(out_dir):
             os.makedirs(out_dir)
 

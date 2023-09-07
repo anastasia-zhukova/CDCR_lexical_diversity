@@ -133,7 +133,7 @@ if __name__ == '__main__':
             all_train_scores.extend(scores.squeeze(1))
 
             batch_y = batch_y.view(-1, 1)
-            all_train_labels.extend(scores.squeeze(1))
+            all_train_labels.extend(batch_y.squeeze(1))
 
             loss = criterion(scores, batch_y.to(device))
             loss.mean().backward()

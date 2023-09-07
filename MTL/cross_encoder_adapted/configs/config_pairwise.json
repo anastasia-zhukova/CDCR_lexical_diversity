@@ -30,13 +30,13 @@
   "sampling":"simultaneous",
 
   "log_path": "logs/pairwise_scorer/",
-  "data_folder": "../../CDCR/data/ECBplus-prep/output_data/",
+  "data_folder": "mrpc",
   "span_repr_path": "models/span_scorers/events_span_repr_0",
   "span_scorer_path": "models/span_scorers/events_span_scorer_0",
   "model_path": "models/pairwise_scorers",
-  "chosen_model_path": "models/pairwise_scorers",
+  "chosen_model_path": "models/pairwise_scorers/large_256/checkpoint_0",
 
-  "experiment_id" : "Experiment5"
+  "experiment_id" : "Experiment1"
 
 
 }

@@ -9,8 +9,7 @@ from torch.utils import data
 import torch
 from tqdm import tqdm
 
-from dataset import CrossEncoderDatasetFull,CrossEncoderMixedDatasetFull
-from cluster_documents import return_mentions_with_predicted_topics
+from dataset import CrossEncoderDatasetFull,CrossEncoderMixedDatasetFull, ParaphraseDataset
 from models import FullCrossEncoder
 from utils import *
 
@@ -26,36 +25,25 @@ if __name__ == '__main__':
     args = parser.parse_args()
     config = pyhocon.ConfigFactory.parse_file(args.config)
     datasets_config = pyhocon.ConfigFactory.parse_file(args.dataset_config)
+    datasets_config = resolve_data_path(datasets_config)
     config_experiments = pyhocon.ConfigFactory.parse_file(args.config_experiments)
-
-    #Set data paths according to the common_data_folder path in the config_datasets file
-    common_data_folder = datasets_config.get_string("common_data_folder")
-    for key in datasets_config:
-        if isinstance(datasets_config[key], dict) and "data_folder" in datasets_config[key]:
-            datasets_config[key]["data_folder"] = datasets_config[key]["data_folder"].replace("${common_data_folder}", common_data_folder)
-
     
-
-    config = pyhocon.ConfigFactory.parse_file(args.config)
     logger = create_logger(config, create_file=True)
+    logger.setLevel(logging.INFO)
     logger.info(pyhocon.HOCONConverter.convert(config, "hocon"))
 
+    #Check where I read the model to be evaluated from
+
     #Load data
-    # init train and dev set
+
     if "Experiment" in config.experiment_id:
         test = CrossEncoderMixedDatasetFull(config,datasets_config,config_experiments[config.experiment_id]['test'])
         
     else:
-        test = CrossEncoderDatasetFull(config, 'test')
-
-        predict_topics = True #TODO Pass by config parameter
-        if predict_topics:
-            mentions_w_predicted_topics = return_mentions_with_predicted_topics(test)
-            test.assign_mentions_with_new_topics(mentions_w_predicted_topics)
-
-        test.create_mention_pairs_by_topics(use_predicted=True)
-        test.prepare_pair_of_mentions()
-
+        if config.data_folder == "mrpc" or "HoW_DatasetDict" in config.data_folder:
+            test = ParaphraseDataset(config, 'test') 
+        else:
+            test = CrossEncoderDatasetFull(config, 'test') 
 
     test_loader = data.DataLoader(test, batch_size=config.batch_size, shuffle=False)
 
@@ -64,48 +52,30 @@ if __name__ == '__main__':
     device = torch.device("cuda:{}".format(device_ids[0]))
 
     cross_encoder_single = FullCrossEncoder(config).to(device)
-    cross_encoder_single.model = RobertaModel.from_pretrained(os.path.join(config.model_path, 'bert')).to(device) # I have to choose the right model path
-    cross_encoder_single.linear.load_state_dict(torch.load(os.path.join(config.model_path, 'linear')))
+    cross_encoder_single.model = RobertaModel.from_pretrained(os.path.join(config.chosen_model_path, 'bert')).to(device)
+    cross_encoder_single.linear_cdcr.load_state_dict(torch.load(os.path.join(config.chosen_model_path, 'linear_cdcr')))
+    cross_encoder_single.linear_pi.load_state_dict(torch.load(os.path.join(config.chosen_model_path, 'linear_pi')))
+
     cross_encoder = torch.nn.DataParallel(cross_encoder_single, device_ids=device_ids)
+
     cross_encoder.eval()
-
-  
-
-    #Set agglomerative clustering
-    clustering_5 = AgglomerativeClustering(n_clusters=None, affinity='precomputed', linkage=config['linkage_type'],
-                                         distance_threshold=0.5)
-    clustering_55 = AgglomerativeClustering(n_clusters=None, affinity='precomputed', linkage=config['linkage_type'],
-                                         distance_threshold=0.55)
-    clustering_6 = AgglomerativeClustering(n_clusters=None, affinity='precomputed', linkage=config['linkage_type'],
-                                         distance_threshold=0.6)
-    clustering_65 = AgglomerativeClustering(n_clusters=None, affinity='precomputed', linkage=config['linkage_type'],
-                                         distance_threshold=0.65)
-    clustering_7 = AgglomerativeClustering(n_clusters=None, affinity='precomputed', linkage=config['linkage_type'],
-                                         distance_threshold=0.7)
-
-    clustering = [clustering_5, clustering_55, clustering_6, clustering_65, clustering_7]
-    clusters = [list(), list(), list(), list(), list()]
-    max_ids = [0, 0, 0, 0, 0]
-    threshold = {id: thresh for id, thresh in enumerate([0.5, 0.55, 0.6, 0.65, 0.7])}
 
     #Predict
     number_of_positive_pairs, number_of_pairs = 0, 0
 
-    all_scores, all_labels = [], []
+    all_scores, all_labels, all_identifiers = [], [], []
     # Predict values
 
     for batch_x, batch_y,instance_id,dataset_task in tqdm(test_loader):
-        bert_tokens = cross_encoder.module.tokenizer(batch_x, pad_to_max_length=True)
+        bert_tokens = cross_encoder_single.tokenizer(batch_x, pad_to_max_length=True)
         input_ids = torch.tensor(bert_tokens['input_ids'], device=device)
         attention_mask = torch.tensor(bert_tokens['attention_mask'], device=device)
-
+        all_identifiers.extend(instance_id)
         with torch.no_grad():
-            # scores = cross_encoder(input_ids, attention_mask)
-            # Replace temporarily to get some scores
-            scores = cross_encoder(input_ids, attention_mask)
-            scores = torch.sigmoid(scores)
-            all_scores.extend(scores.detach().cpu().squeeze(1))
-        all_labels.extend(batch_y.squeeze(1))
+            scores = cross_encoder(input_ids, attention_mask,dataset_task)
+
+        all_scores.extend(scores.detach().cpu().squeeze())
+        all_labels.extend(batch_y.squeeze())
         torch.cuda.empty_cache()
         
         number_of_positive_pairs += len((batch_y == 1).nonzero())
@@ -113,12 +83,36 @@ if __name__ == '__main__':
 
     all_labels_tensor = torch.stack(all_labels)
     all_scores_tensor = torch.stack(all_scores)
+    strict_preds = (all_scores_tensor > 0).to(torch.int)
 
-    mentions_dictionary = {d["mention_id"]: d for d in test.mentions}
-    df_score = pd.DataFrame({"mention1":[id.split("[SEP]")[1] for id in test.instance_ids],
-                "mention2":[id.split("[SEP]")[2] for id in test.instance_ids],
-                "similarity_score":torch.rand(len(test.instance_ids))})
+    subtopics_dictionary = {}
+    if hasattr(test, 'mentions'):
+        subtopics_dictionary = {d["mention_id"]: d['subtopic_id'] for d in test.mentions}
+
+    subtopic_list, dataset_names_list, mention_type_list = [],[],[]
+
+    for identifier in all_identifiers:
+        identifier_sep_list = identifier.split('[SEP]')
+        if len(identifier_sep_list)==2: #MRPC
+            subtopic_list.append('NA')
+        elif len(identifier_sep_list)==3:
+            subtopic_mention_id1 = subtopics_dictionary[identifier_sep_list[1]]
+            subtopic_mention_id2 = subtopics_dictionary[identifier_sep_list[2]]
+            assert subtopic_mention_id1 == subtopic_mention_id2
+            subtopic_list.append(subtopic_mention_id1)
+            
+        else:
+            raise ValueError(f'Check the instance identifier, it should not have length {len(len(identifier_sep_list))}')
+        
+        dataset_info = extract_dataset_info_from_instance_id(identifier)
+        mention_type_list.append(dataset_info['mention_type'])
+        dataset_names_list.append(dataset_info['dataset_name'])
+
+    df_score = pd.DataFrame({"instance_id":all_identifiers,
+                                'dataset':dataset_names_list,
+                                'mention_type':mention_type_list,
+                            'subtopic':subtopic_list,
+                            'label':all_labels_tensor,
+                            "prediction":strict_preds})
     
-    df_score["predicted_topic1"] = df_score["mention1"].map(mentions_dictionary).apply(lambda x: x.get("predicted_topic") if x else None)
-    df_score["predicted_topic2"] = df_score["mention2"].map(mentions_dictionary).apply(lambda x: x.get("predicted_topic") if x else None)
-    df_score.to_csv("predicted_clusters.csv")
+    df_score.to_csv(os.path.join(config.chosen_model_path, "predicted_pairs.csv"),index=False)

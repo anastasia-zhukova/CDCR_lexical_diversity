@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=train-cross-encoder-gpu
-#SBATCH -t 08:30:00                  # estimated time # TODO: adapt to your needs
+#SBATCH -t 05:30:00                  # estimated time # TODO: adapt to your needs
 #SBATCH -p grete:shared              # the partition you are training on (i.e., which nodes), for nodes see sinfo -p grete:shared --format=%N,%G
 #SBATCH -G A100:1                   # take 1 GPU, see https://www.hlrn.de/doc/display/PUB/GPU+Usage for more options
 #SBATCH --mem-per-gpu=50G             # setting the right constraints for the splitted gpu partitions

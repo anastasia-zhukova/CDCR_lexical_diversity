@@ -18,7 +18,7 @@
 
   "random_seed": 0,
   "epochs": 5,
-  "batch_size": 256,
+  "batch_size": 128,
   "learning_rate": 1e-3,
   "weight_decay": 0,
   "loss": "bce",
@@ -27,7 +27,7 @@
   "segment_window": 512,
   "neg_samp": true,
   "exact": false,
-  "sampling":"sequential",
+  "sampling":"simultaneous",
 
   "log_path": "logs/pairwise_scorer/",
   "data_folder": "../../CDCR/data/ECBplus-prep/output_data/",
@@ -36,7 +36,7 @@
   "model_path": "models/pairwise_scorers",
   "chosen_model_path": "models/pairwise_scorers",
 
-  "experiment_id" : "Experiment2"
+  "experiment_id" : "Experiment5"
 
 
 }

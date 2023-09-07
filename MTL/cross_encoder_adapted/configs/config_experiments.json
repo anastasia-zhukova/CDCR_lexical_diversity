@@ -74,16 +74,14 @@
             {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "train", "negative_sampling": true},
             {"task": "CDCR","config_key": "FCC_T_ENTITY_CONFIG", "split": "train", "negative_sampling": true},
             {"task": "CDCR","config_key": "FCC_T_EVENT_CONFIG", "split": "train", "negative_sampling": true},
-            {"task": "PI","config_key": "MRPC", "split": "train", "negative_sampling": false},
-            {"task": "PI","config_key": "HOW", "split": "test", "negative_sampling": false}
+            {"task": "PI","config_key": "MRPC", "split": "train", "negative_sampling": false}
         ],
         "val": [
             {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "val", "negative_sampling": false},
             {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "val", "negative_sampling": false},
             {"task": "CDCR","config_key": "FCC_T_ENTITY_CONFIG", "split": "val", "negative_sampling": false},
             {"task": "CDCR","config_key": "FCC_T_EVENT_CONFIG", "split": "val", "negative_sampling": false},
-            {"task": "PI","config_key": "MRPC", "split": "validation", "negative_sampling": false},
-            {"task": "PI","config_key": "HOW", "split": "validation", "negative_sampling": false}
+            {"task": "PI","config_key": "MRPC", "split": "validation", "negative_sampling": false}
         ],
         "test": [
             {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "test", "negative_sampling": false},

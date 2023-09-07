@@ -187,10 +187,16 @@ if __name__ == '__main__':
             input_ids = torch.tensor(bert_tokens['input_ids'], device=device)
             attention_mask = torch.tensor(bert_tokens['attention_mask'], device=device)
             all_identifiers.extend([extract_dataset_info_from_instance_id(id) for id in instance_id])
+            
 
             with torch.no_grad():
-                scores = cross_encoder(input_ids, attention_mask,dataset_task)
-
+                try:
+                    scores = cross_encoder(input_ids, attention_mask,dataset_task)
+                except Exception as e:
+                    print("Input IDs:", input_ids,'Instance ids',instance_id)
+                    print("Error Message:", e)
+                    # Re-raise the exception if needed
+                    raise
             torch.cuda.empty_cache()
             
             number_of_positive_pairs += len((batch_y == 1).nonzero())

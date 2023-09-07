@@ -133,19 +133,12 @@ class FullCrossEncoder(nn.Module):
 
 
         self.hidden_size = self.model.config.hidden_size
-<<<<<<< HEAD
 
         self.linear_cdcr = nn.Sequential(
-=======
-        # self.linear = nn.Linear(self.hidden_size, 1)
-
-        self.linear = nn.Sequential(
->>>>>>> parent of 02df59f (reset_lock commit)
             nn.Linear(self.hidden_size, 128),
             nn.ReLU(),
             nn.Linear(128, 1)
         )
-<<<<<<< HEAD
 
         self.linear_pi = nn.Sequential(
             nn.Linear(self.hidden_size, 128),
@@ -183,15 +176,3 @@ class FullCrossEncoder(nn.Module):
             x[mask_current] = logit_scores
 
         return x
-=======
-        self.linear.apply(init_weights)
-
-
-
-    def forward(self, input_ids, attention_mask):
-        output= self.model(input_ids, attention_mask)
-        cls_vector = output.last_hidden_state[:, 0, :]
-        scores = self.linear(cls_vector)
-
-        return scores
->>>>>>> parent of 02df59f (reset_lock commit)

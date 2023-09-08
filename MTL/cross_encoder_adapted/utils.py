@@ -147,3 +147,15 @@ def extract_dataset_info_from_instance_id(instance_id):
         dict_dataset["mention_type"] = sub_parts[1]
     
     return dict_dataset
+
+def preprocess_and_tokenize_pair(batch_x,tokenizer,device):
+
+    before_sep = [parts[0] for parts in (text.split("[SEP]") for text in batch_x)]
+    after_sep = [parts[1] for parts in (text.split("[SEP]") for text in batch_x)]
+
+    bert_tokens = tokenizer(text=before_sep,text_pair=after_sep,add_special_tokens=True,padding=True,truncation=True)
+    input_ids = torch.tensor(bert_tokens['input_ids'], device=device)
+    attention_mask = torch.tensor(bert_tokens['attention_mask'], device=device)
+
+    return input_ids, attention_mask
+

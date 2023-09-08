@@ -118,15 +118,11 @@ if __name__ == '__main__':
         all_train_scores, all_train_labels, all_train_identifiers = [], [], []
 
         for batch_x, batch_y, instance_id, dataset_task in tqdm(train_loader):
-            #Separate sentences from batch to add the tokenizers special tokens
-            before_sep = [parts[0] for parts in (string.split("[SEP]") for string in batch_x)]
-            after_sep = [parts[1] for parts in (string.split("[SEP]") for string in batch_x)]
+
             all_train_identifiers.extend([extract_dataset_info_from_instance_id(id) for id in instance_id])
 
-            bert_tokens = cross_encoder_single.tokenizer(text=before_sep,text_pair=after_sep,add_special_tokens=True,padding=True,truncation=True)
-            input_ids = torch.tensor(bert_tokens['input_ids'], device=device)
-            attention_mask = torch.tensor(bert_tokens['attention_mask'], device=device)
-
+            input_ids, attention_mask = preprocess_and_tokenize_pair(batch_x,cross_encoder_single.tokenizer,device)
+            
             optimizer.zero_grad()
             cross_encoder.zero_grad()
             scores = cross_encoder(input_ids, attention_mask,dataset_task)
@@ -183,11 +179,11 @@ if __name__ == '__main__':
         cross_encoder.eval()
 
         for batch_x, batch_y,instance_id,dataset_task in tqdm(val_loader):
-            bert_tokens = cross_encoder_single.tokenizer(batch_x, pad_to_max_length=True)
-            input_ids = torch.tensor(bert_tokens['input_ids'], device=device)
-            attention_mask = torch.tensor(bert_tokens['attention_mask'], device=device)
+
+            
             all_identifiers.extend([extract_dataset_info_from_instance_id(id) for id in instance_id])
             
+            input_ids, attention_mask = preprocess_and_tokenize_pair(batch_x,cross_encoder_single.tokenizer,device)
 
             with torch.no_grad():
                 try:
@@ -252,9 +248,10 @@ if __name__ == '__main__':
         f1.append(eval.get_f1())
 
     # Specify the filename
-
-    filename_train = os.path.join(out_dir, "train_results.json")
-    filename_val = os.path.join(out_dir, "val_results.json")
+    out_dir_logs = os.path.join(config.model_path, f"{config.experiment_id}",f"{'base' if 'base' in config.roberta_model else 'large'}_{config.batch_size}",
+                    f"{config.sampling}_sampling")
+    filename_train = os.path.join(out_dir_logs, "train_results.json")
+    filename_val = os.path.join(out_dir_logs, "val_results.json")
 
     # Write the JSON data to the file
     with open(filename_train, 'w') as json_file:

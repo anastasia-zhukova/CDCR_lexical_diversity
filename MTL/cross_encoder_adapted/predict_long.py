@@ -67,10 +67,10 @@ if __name__ == '__main__':
     # Predict values
 
     for batch_x, batch_y,instance_id,dataset_task in tqdm(test_loader):
-        bert_tokens = cross_encoder_single.tokenizer(batch_x, pad_to_max_length=True)
-        input_ids = torch.tensor(bert_tokens['input_ids'], device=device)
-        attention_mask = torch.tensor(bert_tokens['attention_mask'], device=device)
+        
         all_identifiers.extend(instance_id)
+
+        input_ids, attention_mask = preprocess_and_tokenize_pair(batch_x,cross_encoder_single.tokenizer,device)
         with torch.no_grad():
             scores = cross_encoder(input_ids, attention_mask,dataset_task)
 

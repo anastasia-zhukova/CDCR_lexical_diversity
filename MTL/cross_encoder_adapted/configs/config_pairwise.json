@@ -36,7 +36,7 @@
   "model_path": "models/pairwise_scorers",
   "chosen_model_path": "models/pairwise_scorers/large_256/checkpoint_0",
 
-  "experiment_id" : "Experiment1"
+  "experiment_id" : "Experiment5"
 
 
 }

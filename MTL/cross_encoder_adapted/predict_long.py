@@ -4,6 +4,7 @@ import os
 import pandas as pd
 import pyhocon
 from sklearn.cluster import AgglomerativeClustering
+from sklearn.metrics import precision_score, recall_score, f1_score
 from transformers import RobertaModel
 from torch.utils import data
 import torch
@@ -45,7 +46,7 @@ if __name__ == '__main__':
         else:
             test = CrossEncoderDatasetFull(config, 'test') 
 
-    test_loader = data.DataLoader(test, batch_size=config.batch_size, shuffle=False)
+    test_loader = data.DataLoader(test, batch_size=config.eval_batch_size, shuffle=False)
 
     #Load model 
     device_ids = config.gpu_num
@@ -116,3 +117,14 @@ if __name__ == '__main__':
                             "prediction":strict_preds})
     
     df_score.to_csv(os.path.join(config.chosen_model_path, "predicted_pairs.csv"),index=False)
+
+    # Compute precision, recall, and F1 score grouped by dataset and entity_type
+    grouped_metrics = df_score.groupby(['dataset', 'mention_type']).apply(lambda x: {
+        'Precision': precision_score(x['label'], x['prediction']),
+        'Recall': recall_score(x['label'], x['prediction']),
+        'F1 Score': f1_score(x['label'], x['prediction'])
+    }).reset_index()
+
+    grouped_metrics = pd.concat([grouped_metrics.drop(columns=0), grouped_metrics[0].apply(pd.Series)], axis=1)
+
+    print(grouped_metrics)

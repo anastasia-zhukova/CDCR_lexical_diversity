@@ -19,6 +19,7 @@
   "random_seed": 0,
   "epochs": 5,
   "batch_size": 128,
+  "eval_batch_size": 256,
   "learning_rate": 1e-3,
   "weight_decay": 0,
   "loss": "bce",
@@ -27,16 +28,15 @@
   "segment_window": 512,
   "neg_samp": true,
   "exact": false,
-  "sampling":"simultaneous",
+  "sampling":"sequential",
 
   "log_path": "logs/pairwise_scorer/",
   "data_folder": "mrpc",
   "span_repr_path": "models/span_scorers/events_span_repr_0",
   "span_scorer_path": "models/span_scorers/events_span_scorer_0",
   "model_path": "models/pairwise_scorers",
-  "chosen_model_path": "models/pairwise_scorers/large_256/checkpoint_0",
+  "chosen_model_path": "models/pairwise_scorers/Experiment5/large_128/simultaneous_sampling/checkpoint_3",
 
-  "experiment_id" : "Experiment5"
-
+  "experiment_id" : "Experiment4"
 
 }

@@ -58,7 +58,8 @@
         "test": [
             {"task": "CDCR","config_key": "ECBPLUS_ENTITY_CONFIG", "split": "test", "negative_sampling": false},
             {"task": "CDCR","config_key": "ECBPLUS_EVENT_CONFIG", "split": "test", "negative_sampling": false},
-            {"task": "PI","config_key": "MRPC", "split": "train", "negative_sampling": false},
+            {"task": "PI","config_key": "MRPC", "split": "test", "negative_sampling": false},
+            {"task": "PI","config_key": "HOW", "split": "train", "negative_sampling": false},
             {"task": "CDCR","config_key": "NEWSWCL50_ENTITY_CONFIG", "split": "train", "negative_sampling": false},
             {"task": "CDCR","config_key": "NEWSWCL50_ENTITY_CONFIG", "split": "val", "negative_sampling": false},
             {"task": "CDCR","config_key": "NEWSWCL50_ENTITY_CONFIG", "split": "test", "negative_sampling": false},

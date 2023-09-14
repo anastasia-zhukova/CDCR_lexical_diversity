@@ -114,7 +114,7 @@ if __name__ == '__main__':
                                 'mention_type':mention_type_list,
                             'subtopic':subtopic_list,
                             'label':all_labels_tensor,
-                            "prediction":strict_preds})
+                            "prediction":all_scores_tensor})
     
     df_score.to_csv(os.path.join(config.chosen_model_path, "predicted_pairs.csv"),index=False)
 

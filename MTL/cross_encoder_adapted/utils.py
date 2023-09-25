@@ -1,13 +1,15 @@
 import collections
+from datetime import datetime
 import logging
 import os
-import torch
 import random
 import numpy as np
+import pandas as pd
 import smtplib
+import torch
 import torch.optim as optim
 from transformers import AdamW, get_linear_schedule_with_warmup
-from datetime import datetime
+
 
 def create_logger(config, create_file=True):
     logging.basicConfig(datefmt='%Y-%m-%d %H:%M:%S')
@@ -159,3 +161,31 @@ def preprocess_and_tokenize_pair(batch_x,tokenizer,device):
 
     return input_ids, attention_mask
 
+## Store predictions from the results' path in a dictionary
+
+def load_results_to_dict(folder_path):
+    """
+    Load CSV files from a folder into a dictionary of DataFrames.
+
+    Args:
+    - folder_path (str): The path to the folder containing CSV files.
+
+    Returns:
+    - dict_predictions (dict): A dictionary where keys are file names and values are DataFrames.
+    """
+    # Define the data types for the columns
+    dtype_dict = {'instance_id': str, 'dataset': str, 'mention_type': str, 'label': int, 'prediction': float, 'subtopic': str}
+
+    # Get a list of all CSV files in the specified folder
+    csv_files = [f for f in os.listdir(folder_path) if f.endswith('.csv')]
+    dict_predictions = {}
+
+    # Iterate through each CSV file and store it in the dictionary
+    for csv_file in csv_files:
+        file_path = os.path.join(folder_path, csv_file)
+
+        df = pd.read_csv(file_path, dtype=dtype_dict, low_memory=False).fillna("NA")
+
+        dict_predictions[csv_file] = df.copy()
+
+    return dict_predictions

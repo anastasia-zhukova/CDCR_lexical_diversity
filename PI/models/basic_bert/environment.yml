@@ -1,7 +1,0 @@
-name: basic_bert
-channels:
-  - conda-forge
-  - defaults
-dependencies:
-  - python=3.8.16
-prefix: /home/sago/miniconda3/envs/basic_bert

@@ -1,33 +1,52 @@
-## Explain how this data works
+# Headlines of War (HoW) Dataset
 
-The original data is organized by splits. Each split has a json file a csv file.
+## Overview
 
-- The json file (features) contain the following variables: index, mid, midid, incidentid, headline, text, date,split
-- The csv file contain that following variables: headline a, headline b and coref.
+[**Headlines of War (HoW)**](https://aclanthology.org/2020.aespen-1.7/) is a dataset comprised of a diverse collection of news story headlines. These headlines serve as paraphrases pairs with biased and lexically diverse language. Below, you'll find an overview of this dataset and instructions on how to access and process it.
 
-- MID refers to a conflict that lasts for many years.
-- Incidentid refers to a time-specific event in the context of one MID, but it is a different event in time.
+### Dataset Details
 
-However,an example like this is confusing:
+- **Source**: [Download HoW Dataset](https://doi.org/10.7910/DVN/8TEG5R)
+- **Data Structure**: Splits containing JSON and CSV files.
 
-midid: 3561
-3561003	Russian official warn of potential fight between Russia Georgia	Russian official warn of potential fight between Russia Georgia	1992-10-04
-3561003	Moscow and Tblisi exchange threats	Moscow and Tblisi exchange threats	1992-10-03
-3561004	Caucasus near war	Caucasus near war	1992-10-05
-3561004	Russians detain helicopters carrying wounded soldiers	Russians detain helicopters carrying wounded soldiers	1992-10-05
-The midid is the same, but the incidentid does not make a big distinction between both events.
+#### JSON File (Features)
 
-The first example of the incidentid 3561004 could be related to either incident within that mid.
+The JSON file, referred to as "features," includes the following variables:
 
------
+- `index`: A unique identifier for each entry.
+- `mid`: Denotes a conflict that spanned multiple years.
+- `midid`: A specific identifier for each mid.
+- `incidentid`: Identifies a time-specific event within a mid, representing different events occurring at distinct time points.
+- `headline`: The headline of the news story.
+- `text`: The full text of the news story.
+- `date`: The date associated with the news story.
+- `split`: The categorization of data into specific sets.
 
-After checking, all the midid's for pairs labeled as coref coincide
+#### CSV File
 
-Keypair 201MID252MID belong to the same midid but are labeled as coref=0, which is weird.
+The CSV file contains the following variables:
 
-Ultimately there is not a big distinction between midid and incidentid to build the paraphrase pairs.
+- `headline a`: One of the headlines.
+- `headline b`: Another headline.
+- `coref`: Information regarding coreference between the two headlines.
 
+Key Clarifications:
 
-In order to get the final data, it is necessary to load it using the huggingface datasets library from its path like this:
+- **MID (Mid)**: Refers to a conflict that extended over several years.
+- **Incidentid (Incident ID)**: Identifies a specific event within a MID, representing different events occurring at various time points.
 
+## Data Processing
+
+To make effective use of this dataset and export it as a Hugging Face dataset, follow these steps:
+
+1. **Load Data**: Begin by loading the source data using the `0_load_data.py` script.
+2. **Unify Data**: Use the `1_unify_data.py` script to unify and structure the dataset.
+3. **Prepare Data for Hugging Face**: Finally, prepare the data for Hugging Face by running the `2_prepare_data_huggingface.py` script.
+
+After successfully processing the data, you can access it using the Hugging Face library with the following command:
+
+```python
+from datasets import load_dataset
+
+# Load the HoW dataset
 dataset_test = DatasetDict.load_from_disk('HoW_DatasetDict')

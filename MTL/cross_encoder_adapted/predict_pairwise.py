@@ -1,9 +1,7 @@
 import argparse
-import numpy as np
 import os
 import pandas as pd
 import pyhocon
-from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics import precision_score, recall_score, f1_score
 from transformers import RobertaModel
 from torch.utils import data

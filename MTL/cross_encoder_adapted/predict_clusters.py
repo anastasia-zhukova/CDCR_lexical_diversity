@@ -145,7 +145,7 @@ def process_predictions(dict_predictions, dataset_name):
         for entity_type, subtopics in dict_combine_topics.items():
             for subtopic in subtopics:
                 chosen_df_subtopic = chosen_df[(chosen_df['mention_type'] == entity_type) & (chosen_df['subtopic'] == subtopic)]
-                predicted_clusters_df = predict_clusters(chosen_df_subtopic)  # You need to define predict_clusters function
+                predicted_clusters_df = predict_clusters(chosen_df_subtopic)
                 predicted_clusters_df = predicted_clusters_df.rename(columns={'predicted_cluster': new_file_key})
                 list_predicted_clusters_per_file.append(predicted_clusters_df)
         

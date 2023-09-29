@@ -106,6 +106,6 @@ CoNLL score: 71.77
 
 CoNLL score: 46.28
 
-### Notes
+## 7. Notes
 
 * The CDCR model is based on [the cross encoder repository](https://github.com/ariecattan/cross_encoder/) and the training strategies follow the definitions outlined in [Analyzing Multi-Task Learning for Abstractive Text Summarization](https://arxiv.org/abs/2210.14606).

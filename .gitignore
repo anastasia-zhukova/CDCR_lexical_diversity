@@ -3,6 +3,7 @@
 *.src
 *.tgt
 *.pt
+*.xlsx
 .ipynb_checkpoints
 __pycache__/
 

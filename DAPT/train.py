@@ -1,0 +1,1 @@
+print("run on GWDG cluster was successful!")

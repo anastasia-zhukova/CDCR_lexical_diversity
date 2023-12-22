@@ -1,7 +1,9 @@
 from collections import namedtuple, defaultdict
 import json
 import os
+from torch.utils.data import Dataset
 from typing import Dict, Any
+import numpy as np
 
 class Mention:
 
@@ -71,6 +73,7 @@ class CDCR_Dataset:
         self.data_path=data_path
         self.sentences = {}
         self.mentions_by_topics = defaultdict(list)
+        self.mentions_by_type = defaultdict(list)
         self.context_method = context_method
         self.special_mention_tokens=special_mention_tokens
 
@@ -134,6 +137,7 @@ class CDCR_Dataset:
                         #Store in dictionaries
                         self.mentions[new_mention.mention_id]=new_mention
                         self.mentions_by_topics[new_mention.topic_id].append(new_mention.mention_id)
+                        self.mentions_by_type[new_mention.type].append(new_mention.mention_id)
                         
 
     def read_conll_file(self,doc_conll_path:str):
@@ -177,3 +181,86 @@ class CDCR_Dataset:
             doc_dict[doc] = token_dict
 
         return doc_dict
+
+
+
+class CL_Dataset(Dataset):
+    def __init__(self,cdcr_dataset,mention_type,tokenizer): #Initialized tokenizer
+        #I will tokenize all the sequences up-front
+
+        self.cdcr_dataset = cdcr_dataset
+        #Tokenize mentions
+        self.mention_type = mention_type
+        self.tokenizer = tokenizer
+        self.tokenized_mentions = self.tokenize_mentions()
+
+        #Load pair keys and labels
+        positive_pairs, positive_labels = self.load_sample_keys_and_labels(pairs_path="positive_pairs.json",label=1)
+        negative_pairs, negative_labels = self.load_sample_keys_and_labels(pairs_path="negative_pairs.json",label=0)
+
+        self.all_pairs = positive_pairs + negative_pairs
+        self.all_labels = positive_labels + negative_labels
+
+        #Here in this processing I should tokenize first, remove tokens in excess keeping the limit to 128, then concatenate 
+    def tokenize_mentions(self):    
+        #Validate if special token [E] is recornized by the tokenizer
+        mention_start = self.tokenizer.encode("[E]",add_special_tokens=False)
+        mention_end = self.tokenizer.encode("[/E]",add_special_tokens=False)
+        if len(mention_start)!=1 or len(mention_end)!=1:
+            raise Exception("Either the special token [E] or [/E] is splitted in more than 1 token by the tokenizer")
+        
+        #Tokenize mention repersentation with context
+        mention_keys = [key for key in self.cdcr_dataset.mentions_by_type[self.mention_type] if key in self.cdcr_dataset.mentions]
+        context_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[0]) for key in mention_keys]
+        mention_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[1]) for key in mention_keys]
+        encoded_text = self.tokenizer(text=context_texts,text_pair=mention_texts,padding="max_length",max_length=120,truncation="only_first")
+
+        # Create a dictionary to store the mappings
+        tokenized_dict = {}
+
+        # Iterate over keys and link values
+        for key in mention_keys:
+            # Access corresponding values in encoded_text
+            input_ids = encoded_text["input_ids"][mention_keys.index(key)]
+            attention_mask = encoded_text["attention_mask"][mention_keys.index(key)]
+
+            if len(input_ids)>120:
+                print(f"mention {key} ignored due to truncation of mention tokens")
+                continue
+
+            #Validate that the special token [E] and [/E] were not removed due to truncation
+            if input_ids.count(mention_start[0])!=1 or input_ids.count(mention_end[0])!=1:
+                raise Exception(f"The truncation process removed either the [E] or the [/E] token. [E] occurs {input_ids.count(mention_start[0])} and [/E] occurs {input_ids.count(mention_end[0])} times in mention {key}")
+                
+            
+            # Create a dictionary entry with the key and corresponding tensors
+            tokenized_dict[key] = {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask
+                #Roberta Tokenizer does not have token type ids
+            }
+        
+        return tokenized_dict
+
+        
+    def load_sample_keys_and_labels(self, pairs_path,label):
+
+        with open(pairs_path,"r") as json_file:
+            pairs = json.load(json_file)[self.mention_type]
+        
+        labels = [label]*len(pairs)
+        return list(pairs.keys()), labels
+    
+    def decode_input_ids(self,input_id):
+        return self.tokenizer.decode(input_id)
+
+
+    def __len__(self):
+        return len(self.all_labels)
+
+    def __getitem__(self, index): 
+        mentions_pair_key = self.all_pairs[index]
+        key_mention1, key_mention2 = mentions_pair_key.split("###")
+        encoding_array_mention1= np.array([self.tokenized_mentions[key_mention1]["input_ids"], self.tokenized_mentions[key_mention1]["attention_mask"]])
+        encoding_array_mention2= np.array([self.tokenized_mentions[key_mention2]["input_ids"], self.tokenized_mentions[key_mention2]["attention_mask"]])
+        return encoding_array_mention1,encoding_array_mention2, self.all_labels[index]

@@ -1,7 +1,7 @@
 from collections import namedtuple, defaultdict
 import json
 import os
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Subset
 from typing import Dict, Any
 import numpy as np
 
@@ -185,29 +185,41 @@ class CDCR_Dataset:
 
 
 class CL_Dataset(Dataset):
-    def __init__(self,cdcr_dataset,mention_type,tokenizer): #Initialized tokenizer
+    def __init__(self,name,data_paths,context_method,mention_type,tokenizer, special_mention_tokens,mode="train"): #Initialized tokenizer
         #I will tokenize all the sequences up-front
 
-        self.cdcr_dataset = cdcr_dataset
+        self.cdcr_dataset = CDCR_Dataset(name=name, data_path=data_paths,context_method=context_method,special_mention_tokens=special_mention_tokens)
+
         #Tokenize mentions
         self.mention_type = mention_type
         self.tokenizer = tokenizer
         self.tokenized_mentions = self.tokenize_mentions()
+        self.mode = mode
 
         #Load pair keys and labels
-        positive_pairs, positive_labels = self.load_sample_keys_and_labels(pairs_path="positive_pairs.json",label=1)
-        negative_pairs, negative_labels = self.load_sample_keys_and_labels(pairs_path="negative_pairs.json",label=0)
+        if mode=="train":
+            positive_pairs, positive_labels = self.load_sample_keys_and_labels(pairs_path="positive_pairs.json",label=1)
+            negative_pairs, negative_labels = self.load_sample_keys_and_labels(pairs_path="negative_pairs.json",label=0)
 
-        self.all_pairs = positive_pairs + negative_pairs
-        self.all_labels = positive_labels + negative_labels
+            self.all_pairs = positive_pairs + negative_pairs
+            self.all_labels = positive_labels + negative_labels
+
+        elif mode == 'inference':
+            self.keys_list = list(self.tokenized_mentions.keys())
+        else:
+            raise ValueError("Invalid mode. Supported values are 'train' and 'inference'.")
 
         #Here in this processing I should tokenize first, remove tokens in excess keeping the limit to 128, then concatenate 
     def tokenize_mentions(self):    
         #Validate if special token [E] is recornized by the tokenizer
-        mention_start = self.tokenizer.encode("[E]",add_special_tokens=False)
-        mention_end = self.tokenizer.encode("[/E]",add_special_tokens=False)
+        start_token = self.cdcr_dataset.special_mention_tokens[0]
+        end_token = self.cdcr_dataset.special_mention_tokens[1]
+
+        mention_start = self.tokenizer.encode(start_token,add_special_tokens=False)
+        mention_end = self.tokenizer.encode(end_token,add_special_tokens=False)
+
         if len(mention_start)!=1 or len(mention_end)!=1:
-            raise Exception("Either the special token [E] or [/E] is splitted in more than 1 token by the tokenizer")
+            raise Exception("Either the special token [E] or [/E] is splitted in more than 1 token by the subword tokenizer")
         
         #Tokenize mention repersentation with context
         mention_keys = [key for key in self.cdcr_dataset.mentions_by_type[self.mention_type] if key in self.cdcr_dataset.mentions]
@@ -256,11 +268,29 @@ class CL_Dataset(Dataset):
 
 
     def __len__(self):
-        return len(self.all_labels)
-
+        if self.mode=="train":
+            return len(self.all_labels)
+        else: 
+            return len(self.tokenized_mentions)
+        
     def __getitem__(self, index): 
-        mentions_pair_key = self.all_pairs[index]
-        key_mention1, key_mention2 = mentions_pair_key.split("###")
-        encoding_array_mention1= np.array([self.tokenized_mentions[key_mention1]["input_ids"], self.tokenized_mentions[key_mention1]["attention_mask"]])
-        encoding_array_mention2= np.array([self.tokenized_mentions[key_mention2]["input_ids"], self.tokenized_mentions[key_mention2]["attention_mask"]])
-        return encoding_array_mention1,encoding_array_mention2, self.all_labels[index]
+        if self.mode=="train":
+            mentions_pair_key = self.all_pairs[index]
+            key_mention1, key_mention2 = mentions_pair_key.split("###")
+            encoding_array_mention1= np.array([self.tokenized_mentions[key_mention1]["input_ids"], self.tokenized_mentions[key_mention1]["attention_mask"]])
+            encoding_array_mention2= np.array([self.tokenized_mentions[key_mention2]["input_ids"], self.tokenized_mentions[key_mention2]["attention_mask"]])
+            return encoding_array_mention1,encoding_array_mention2, self.all_labels[index]
+        
+        else: #Inference
+            key = self.keys_list[index]
+            encoding_array_mention = np.array([self.tokenized_mentions[key]["input_ids"], self.tokenized_mentions[key]["attention_mask"]])
+            return index, encoding_array_mention
+        
+
+
+
+class CustomSubset(Subset):
+    def __init__(self, dataset, indices):
+        super(CustomSubset, self).__init__(dataset, indices)
+        self.keys_list = [self.dataset.keys_list[i] for i in self.indices]
+        self.cdcr_dataset = self.dataset.cdcr_dataset

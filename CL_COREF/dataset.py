@@ -290,7 +290,10 @@ class CL_Dataset(Dataset):
 
 
 class CustomSubset(Subset):
-    def __init__(self, dataset, indices):
+    def __init__(self, dataset, indices,mode):
         super(CustomSubset, self).__init__(dataset, indices)
-        self.keys_list = [self.dataset.keys_list[i] for i in self.indices]
+        if mode=="inference":
+            self.keys_list = [self.dataset.keys_list[i] for i in self.indices]
+        if mode =="train":
+            self.all_pairs = [self.dataset.all_pairs[i] for i in self.indices]
         self.cdcr_dataset = self.dataset.cdcr_dataset

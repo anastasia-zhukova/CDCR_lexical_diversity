@@ -25,6 +25,8 @@ class Mention:
 
         for attribute in attributes_to_initialize:
             setattr(self, attribute, mention_data.get(attribute))
+            
+        self.conll_sent_key = f'{self.conll_doc_key}/{self.sent_id}'
 
     def validate_token_str(self, tokens_from_sentence:list) ->list:
         differences = []
@@ -73,6 +75,7 @@ class CDCR_Dataset:
         self.data_path=data_path
         self.sentences = {}
         self.mentions_by_topics = defaultdict(list)
+        self.mentions_by_sentence = defaultdict(list)
         self.mentions_by_type = defaultdict(list)
         self.context_method = context_method
         self.special_mention_tokens=special_mention_tokens
@@ -137,6 +140,7 @@ class CDCR_Dataset:
                         #Store in dictionaries
                         self.mentions[new_mention.mention_id]=new_mention
                         self.mentions_by_topics[new_mention.topic_id].append(new_mention.mention_id)
+                        self.mentions_by_sentence[new_mention.conll_sent_key].append(new_mention.mention_id)
                         self.mentions_by_type[new_mention.type].append(new_mention.mention_id)
                         
 

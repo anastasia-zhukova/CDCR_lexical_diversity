@@ -12,16 +12,15 @@
 #SBATCH --output=./slurm_files/slurm-%x-%j.out     # where to write output, %x give job name, %j names job id
 #SBATCH --error=./slurm_files/slurm-%x-%j.err      # where to write slurm error
 
-source ~/.bashrc
+source $WORK/.bashrc
 loadconda
 module load cuda
-
-which python 
-echo $PATH
+echo nvidia-smi 
 
 conda info --envs
-source activate pgkpr # Or whatever you called your environment.
-
+conda activate cdcr
+which python 
+echo $PATH
 
 # Printing out some info.
 echo "Submitting job with sbatch from directory: ${SLURM_SUBMIT_DIR}"

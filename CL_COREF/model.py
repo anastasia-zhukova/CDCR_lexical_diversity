@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 class SiameseNetwork(nn.Module):    
 
-    def __init__(self, model,tokenizer, mlp_hidden_dim=1024):        
+    def __init__(self, model,tokenizer, mlp_hidden_dim=1024,device="cpu"):        
         
         super(SiameseNetwork, self).__init__()
 
@@ -16,6 +16,9 @@ class SiameseNetwork(nn.Module):
         # MLP layers
         self.mlp_cls_embed = self.build_mlp()
         self.mlp_mention_embed = self.build_mlp()
+
+        #Device
+        self.device = device
 
     def build_mlp(self):
         return nn.Sequential(
@@ -35,7 +38,7 @@ class SiameseNetwork(nn.Module):
         return output
     
     def encode_sentence(self, input_array):
-        transposed = input_array.transpose(0, 1)
+        transposed = input_array.transpose(0, 1).to(self.device)
         batch_input_ids = transposed[0]
         
         batch_attention_mask = transposed[1]
@@ -52,7 +55,6 @@ class SiameseNetwork(nn.Module):
         
         if not mention_tokens_appear_once or not mention_tokens_exist:
             raise Exception("Mention tokens [E] [/E] are not unique in each sequence from the batch")
-
         outputs = self.language_model(input_ids=batch_input_ids, attention_mask=batch_attention_mask)
         
         # Get the output embeddings from the last layer
@@ -61,7 +63,8 @@ class SiameseNetwork(nn.Module):
 
         # Mask tokens outside the mention
 
-        indices = torch.arange(last_hidden_states.size(1)) #Create indices for each token (dimension 1)
+        indices = torch.arange(last_hidden_states.size(1),device=self.device) #Create indices for each token (dimension 1)
+        
         # Create masks based on start and end indices
         start_mask = indices >= e_start_idx[1].unsqueeze(1) # dim 1 is # tokens
         end_mask = indices <= e_end_idx[1].unsqueeze(1)

@@ -70,7 +70,7 @@ if __name__ == '__main__':
     device_ids = gpu_num
     device = torch.device("cuda:{}".format(device_ids[0]))
 
-    siamese_model_single = SiameseNetwork(model=roberta,tokenizer=tokenizer).to(device)
+    siamese_model_single = SiameseNetwork(model=roberta,tokenizer=tokenizer,device=device).to(device)
     model=siamese_model_single
     # To paralelize
     #siamese_model = torch.nn.DataParallel(siamese_model_single, device_ids=device_ids)
@@ -106,7 +106,8 @@ if __name__ == '__main__':
             optimizer.zero_grad()  # Zero the gradients
             output_mentions1 = model(array_mention1)
             output_mentions2 = model(array_mention2)
-            
+
+            labels = labels.to(device)            
             loss = contrastive_loss(output_mentions1, output_mentions2, labels)
 
             loss.backward()  # Backpropagation

@@ -1,4 +1,5 @@
 #!/bin/bash
+#SBATCH -A nimcdcr2
 #SBATCH --job-name=train-cross-encoder-gpu
 #SBATCH -t 00:20:00                  # estimated time # TODO: adapt to your needs
 #SBATCH -p grete:shared              # the partition you are training on (i.e., which nodes), for nodes see sinfo -p grete:shared --format=%N,%G

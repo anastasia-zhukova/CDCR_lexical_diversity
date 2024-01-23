@@ -21,7 +21,11 @@ if __name__ == '__main__':
     parser.add_argument('--val_dataset_name', type=str, default='ecbplus_val')
     parser.add_argument('--language_model', type=str, default='roberta-large')
     parser.add_argument('--special_tokens', type=str, nargs='+', default=['[E]', '[/E]'])
-
+    parser.add_argument('--train_batch_size', type=int, default=32, help='Batch size for training')
+    parser.add_argument('--val_batch_size', type=int, default=64, help='Batch size for validation')
+    parser.add_argument('--num_epochs', type=int, default=5, help='Number of epochs')
+    #Job ID to check logs
+    parser.add_argument('--job_id', type=str, default= '')
     ## Parameters
     #Data
     # Parse arguments
@@ -35,6 +39,12 @@ if __name__ == '__main__':
     val_dataset_name = args.val_dataset_name
     language_model = args.language_model
     special_tokens = args.special_tokens
+    train_batch_size = args.train_batch_size
+    val_batch_size = args.val_batch_size
+    job_id = args.job_id
+    #num_epochs = 100 for events and 50 for entities
+    num_epochs = args.num_epochs
+
 
     #Model
     gpu_num = [0]
@@ -43,10 +53,15 @@ if __name__ == '__main__':
     #Optimizer and learning
     learning_rate = 2e-7
     weight_decay = 1e-2
-    #num_epochs = 100
-    num_epochs = 3
-    train_batch_size = 4
-    val_batch_size = 32
+
+
+    print("Mention type:",mention_type )
+    print("Language model:",language_model )
+    print("Job id:",job_id )
+    print("Number of epochs",num_epochs )
+    print("train batch size",train_batch_size)
+    print("val_batch_size",val_batch_size )
+    print("------------")
 
     #Initialize model and tokenizer
     roberta = RobertaModel.from_pretrained(pretrained_model_name_or_path= language_model) 
@@ -93,7 +108,7 @@ if __name__ == '__main__':
         os.makedirs(model_path)
 
     for epoch in range(num_epochs):
-        out_dir = os.path.join(model_path,f"experiment",f"roberta_{train_batch_size}",f"checkpoint_{epoch}")
+        out_dir = os.path.join(model_path,f"mention_type_{mention_type}",f"model_{language_model}")
         if not os.path.exists(out_dir):
             os.makedirs(out_dir)
         accumulate_loss = 0

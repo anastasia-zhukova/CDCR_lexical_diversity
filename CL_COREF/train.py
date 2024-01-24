@@ -108,7 +108,7 @@ if __name__ == '__main__':
         os.makedirs(model_path)
 
     for epoch in range(num_epochs):
-        out_dir = os.path.join(model_path,f"mention_type_{mention_type}",f"model_{language_model}")
+        out_dir = os.path.join(model_path,f"{mention_type}",f"{language_model}")
         if not os.path.exists(out_dir):
             os.makedirs(out_dir)
         accumulate_loss = 0
@@ -137,12 +137,12 @@ if __name__ == '__main__':
         #Validation
         model.eval()
         #Store vector representations by topic
-        df_metrics = compute_cdcr_metrics(cl_cdcr_dataset=cl_cdcr_val,dataloader=val_dataloader,model=model,metrics="all")
+        df_metrics, _ = compute_cdcr_metrics(cl_cdcr_dataset=cl_cdcr_val,dataloader=val_dataloader,model=model,metrics="all")
         # Store the best model
         conll_f1 = df_metrics.loc["conll","F1"]
         print(f'epoch {epoch+1}/{num_epochs}, eval conll: {conll_f1}')
         if conll_f1 > best_conll_f1:
             best_conll_f1 = conll_f1
-            torch.save(model.state_dict(), out_dir+"/siamese_model.pth")
+            torch.save(model.state_dict(), out_dir+f"/siamese_model_batch_{train_batch_size}_epochs_{num_epochs}.pth")
             print(f'epoch {epoch+1}/{num_epochs}, model saved')
 

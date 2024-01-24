@@ -220,7 +220,7 @@ def compute_cdcr_metrics(cl_cdcr_dataset,dataloader,model,metrics,NP_only=False,
     
     df_metrics = compute_metrics_cdcr(doc_coref_infos=doc_coref_infos,metrics=metrics)
 
-    return df_metrics
+    return df_metrics, merged_df
 
 
 

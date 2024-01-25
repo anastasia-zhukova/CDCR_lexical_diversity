@@ -2,6 +2,7 @@ from collections import namedtuple, defaultdict
 import json
 import numpy as np
 import os
+import time
 from torch.utils.data import Dataset, Subset
 from typing import Dict, Any
 
@@ -224,10 +225,13 @@ class CL_Dataset(Dataset):
 
         #Load pair keys and labels
         if mode=="train":
-
+            start_time = time.time()
             self.all_pairs, self.all_labels = return_pairs_and_labels(cdcr_dataset=self.cdcr_dataset,
                                                                         mention_type=self.mention_type)            
-
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            print(f"Time elapsed for sampling: {elapsed_time} seconds")
+            
         elif mode == 'inference':
             self.keys_list = list(self.tokenized_mentions.keys())
         else:

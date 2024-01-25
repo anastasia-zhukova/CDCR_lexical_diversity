@@ -43,7 +43,7 @@ def return_sentence_pair_similarity_by_topic(dict_sentences_by_topic,mentions_by
 
         dict_sentences_pair_similarity_by_topic[topic] = lower_triangle_dict
 
-        return dict_sentences_pair_similarity_by_topic
+    return dict_sentences_pair_similarity_by_topic
 
 def unnest_dictionary(input_dict,key=''):
   
@@ -105,14 +105,18 @@ def create_pairs(dict_sentences_pairs_similarity,mentions,mentions_by_sentence, 
 
 
 def return_pairs_and_labels (cdcr_dataset, mention_type):
-    sentences_pairs_similarity_dict = return_sentence_pair_similarity_by_topic(cdcr_dataset.sentences_by_topic,cdcr_dataset.mentions_by_sentence) #Dict sentence by 
-    
+    #TODO lift restriction on ECB topic 34 once the dataset is updated
+    sentences_by_topic = cdcr_dataset.sentences_by_topic
+    sentences_by_topic.pop('ECBplus-34',None)
+    sentences_pairs_similarity_dict = return_sentence_pair_similarity_by_topic(sentences_by_topic,cdcr_dataset.mentions_by_sentence) #Dict sentence by 
+    # Remove ECB topic 34
     positive_pairs,negative_pairs = create_pairs(dict_sentences_pairs_similarity=sentences_pairs_similarity_dict,
                                     mentions=cdcr_dataset.mentions,mentions_by_sentence=cdcr_dataset.mentions_by_sentence, mention_type=mention_type)
 
     positive_labels, negative_labels= [1]*len(positive_pairs), [0]*len(negative_pairs)
-
-    all_pairs = positive_pairs + negative_pairs
+    print('positive pairs', positive_pairs)
+    #Extract keys from pairs, not the similarity score
+    all_pairs = list(positive_pairs.keys()) + list(positive_pairs.keys())
     all_labels = positive_labels + negative_labels
 
     return all_pairs,all_labels

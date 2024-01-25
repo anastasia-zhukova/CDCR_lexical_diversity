@@ -116,7 +116,7 @@ def return_pairs_and_labels (cdcr_dataset, mention_type):
     positive_labels, negative_labels= [1]*len(positive_pairs), [0]*len(negative_pairs)
     print('positive pairs', positive_pairs)
     #Extract keys from pairs, not the similarity score
-    all_pairs = list(positive_pairs.keys()) + list(negative_labels.keys())
+    all_pairs = list(positive_pairs.keys()) + list(negative_pairs.keys())
     all_labels = positive_labels + negative_labels
 
     return all_pairs,all_labels

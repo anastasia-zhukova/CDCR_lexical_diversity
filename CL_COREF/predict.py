@@ -13,7 +13,7 @@ from model import SiameseNetwork
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # Define arguments
-    parser.add_argument('--model_path', type=str, nargs='+', default=['models/entity/roberta-large/siamese_model.pth'])
+    parser.add_argument('--model_path', type=str)
     args = parser.parse_args()
 
     model_path = args.model_path # By Param

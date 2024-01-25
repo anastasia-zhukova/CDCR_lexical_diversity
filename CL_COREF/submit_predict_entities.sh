@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -A nimcdcr2
 #SBATCH --job-name=train-cross-encoder-gpu
-#SBATCH -t 00:20:00                  # estimated time # TODO: adapt to your needs
+#SBATCH -t 00:10:00                  # estimated time # TODO: adapt to your needs
 #SBATCH -p grete:shared              # the partition you are training on (i.e., which nodes), for nodes see sinfo -p grete:shared --format=%N,%G
 #SBATCH -G V100:1                   # take 1 GPU, see https://www.hlrn.de/doc/display/PUB/GPU+Usage for more options
 #SBATCH --mem-per-gpu=30G             # setting the right constraints for the splitted gpu partitions
@@ -46,6 +46,7 @@ python -u predict.py --model_path models/entity/roberta-large/siamese_model.pth
 # Run the script with logger:
 #python -u train_with_logger.py -l ~/${SLURM_JOB_NAME}_${SLURM_JOB_ID}  -t True -p True -d True -s True -f True
 
+
 # Obtain job information for estimated start and end times
 job_info=$(scontrol show job $SLURM_JOB_ID)
 
@@ -56,10 +57,10 @@ estimated_end_time=$(echo "$job_info" | grep "EndTime" | cut -d'=' -f2)
 echo "Estimated start time: $estimated_start_time"
 echo "Estimated end time: $estimated_end_time"
 
+# Convert date and time strings to a format that 'date' can understand
+start_timestamp=$(date -d "$(echo "$estimated_start_time" | cut -d' ' -f1) $(echo "$estimated_start_time" | cut -d' ' -f2)" +"%s")
+end_timestamp=$(date -d "$(echo "$estimated_end_time" | cut -d' ' -f1) $(echo "$estimated_end_time" | cut -d' ' -f2)" +"%s")
+
 # Calculate and print the time difference
-start_timestamp=$(date -d "$estimated_start_time" +"%s")
-end_timestamp=$(date -d "$estimated_end_time" +"%s")
-
 time_difference=$((end_timestamp - start_timestamp))
-
 echo "Estimated running time: $((time_difference / 60)) minutes"

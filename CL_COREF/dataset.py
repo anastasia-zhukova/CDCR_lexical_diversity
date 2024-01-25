@@ -296,8 +296,7 @@ class CL_Dataset(Dataset):
         
     def __getitem__(self, index): 
         if self.mode=="train":
-            mentions_pair_key = self.all_pairs[index]
-            key_mention1, key_mention2 = mentions_pair_key.split("###")
+            key_mention1, key_mention2= self.all_pairs[index]
             encoding_array_mention1= np.array([self.tokenized_mentions[key_mention1]["input_ids"], self.tokenized_mentions[key_mention1]["attention_mask"]])
             encoding_array_mention2= np.array([self.tokenized_mentions[key_mention2]["input_ids"], self.tokenized_mentions[key_mention2]["attention_mask"]])
             return encoding_array_mention1,encoding_array_mention2, self.all_labels[index]

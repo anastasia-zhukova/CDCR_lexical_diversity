@@ -67,7 +67,7 @@ def load_gold_clusters(cl_cdcr_dataset):
     for k, v in cl_cdcr_dataset.cdcr_dataset.mentions.items():
         mention_id = k
         topic_id = v.topic_id
-        subtopic_id = v.subtopic_id  # Might be missing in NewsWCL50
+        subtopic_id = v.subtopic_id
         coref_chain = v.coref_chain
         mention_type = v.type
 

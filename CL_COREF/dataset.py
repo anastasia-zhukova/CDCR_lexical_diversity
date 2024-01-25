@@ -1,9 +1,12 @@
 from collections import namedtuple, defaultdict
 import json
+import numpy as np
 import os
 from torch.utils.data import Dataset, Subset
 from typing import Dict, Any
-import numpy as np
+
+
+from sampling import return_pairs_and_labels
 
 class Mention:
 
@@ -71,12 +74,12 @@ class CDCR_Dataset:
 
         self.mentions = {}
         self.name = name
-        self.topics = []
         self.data_path=data_path
         self.sentences = {}
-        self.mentions_by_topics = defaultdict(list)
+        self.mentions_by_topic = defaultdict(list)
         self.mentions_by_sentence = defaultdict(list)
         self.mentions_by_type = defaultdict(list)
+        self.sentences_by_topic = defaultdict(dict)
         self.context_method = context_method
         self.special_mention_tokens=special_mention_tokens
 
@@ -90,61 +93,85 @@ class CDCR_Dataset:
             self.data_path= [self.data_path]
 
         for path in self.data_path:
+            # get dataset name from path
 
-            # Load docs and topics
-            docs, topics = self.read_conll_file(path)
-            self.topics.extend(topics)
-            #Load sentences
-            self.sentences=self.make_dict_of_sentences(docs)
+            splitted_path = path.split("/")
+            prep_elements = [element for element in splitted_path if 'prep' in element]
+            dataset_name = ""
+            if len(prep_elements) == 1:
+                dataset_name = prep_elements[0].split("-")[0]
+            else:
+                raise ValueError(f"Error: the path {path} does not contain exactly one element containing the string 'prep' from which to extract the dataset's name")
+
+            # Load docs from conll_files
+            docs = self.read_conll_file(path)
+            
+            #Process dictionary of sentences by document id
+            new_sentences_dict = self.make_dict_of_sentences(docs)
+
+            #Create dictionary of sentences by topic to compute similarity within groups
+            for doc_key, doc in new_sentences_dict.items():
+                topic_num = doc_key.split("/")[0]
+                dataset_topic_key = f"{dataset_name}-{topic_num}"
+
+                for index, sentence in doc.items():
+                    #key equals doc_key + sentence key and values are concatenated tokens
+                    self.sentences_by_topic[dataset_topic_key].update({f"{doc_key}/{index}":' '.join(sentence.values()) })
+
+            #Add to the existing dictionary
+            current_sentences_dict = self.sentences.copy() 
+            current_sentences_dict.update(new_sentences_dict)
+            self.sentences = current_sentences_dict
 
             for file_path, type_str in entity_types.items():
                 mention_type_path = path + file_path
                 if os.path.exists(mention_type_path):
 
-                    ## Load mentions:
+                    ## Process mentions:
                     with open(mention_type_path, 'r') as f:
                         raw_mentions = json.load(f)
                     
                     for mention_dict in raw_mentions:
                         new_mention = Mention(mention_dict,type=type_str,source_path=path)
 
-                        ## Validations
-                        
+                        ## Validations before storing the mention
                         
                         #conll_key exists in the CoNLL file?
                         if new_mention.conll_doc_key not in self.sentences.keys():
-                            raise ValueError(f"Mention {new_mention.mention_id} does not have a matching CoNLL doc key with the dictionary of sentences")
+                            raise ValueError(f"Mention {new_mention.mention_id} does not have a matching CoNLL doc key in the dictionary of sentences")
                         
-
                         #mention already added to the dictionary?
                         if new_mention.mention_id in self.mentions:
                             raise ValueError(f"Mention '{new_mention.mention_id }' already exists in the dictionary of mentions.")
                         
-                        #new_mention.tokens_text equals the concatenation of tokens extracted from the sentence?
-                        new_mention_sentence = self.sentences[new_mention.conll_doc_key][new_mention.sent_id]
-
-                        tokens_from_sentence = []
-                        for token_mention_id in new_mention.tokens_number:
-                            tokens_from_sentence.append(new_mention_sentence[token_mention_id])
-
+                        #new_mention.tokens_text equals the concatenation of tokens extracted from the conll file?
+                        new_mention_sentence = self.sentences[new_mention.conll_doc_key][new_mention.sent_id]    
+                        tokens_from_sentence = [new_mention_sentence[token_mention_id] for token_mention_id in new_mention.tokens_number]
                         differences = new_mention.validate_token_str(tokens_from_sentence)
 
                         if differences:
                             raise ValueError(f"Mention {new_mention.mention_id} has attribute tokens_text={new_mention.tokens_text} and the tokens extracted from the sentence are {tokens_from_sentence} in position {differences}")
                         
-
                         ## Assignments
 
                         #Create context
                         new_mention.create_context(doc_sentences_dict=self.sentences[new_mention.conll_doc_key],method=self.context_method,special_mention_tokens=self.special_mention_tokens)
-                        #Store in dictionaries
+
+                        #Grouping by other variables
                         self.mentions[new_mention.mention_id]=new_mention
-                        self.mentions_by_topics[new_mention.topic_id].append(new_mention.mention_id)
                         self.mentions_by_sentence[new_mention.conll_sent_key].append(new_mention.mention_id)
                         self.mentions_by_type[new_mention.type].append(new_mention.mention_id)
-                        
 
-    def read_conll_file(self,doc_conll_path:str):
+                        #Grouping by dataset name and topic id
+
+                        dataset_topic_key = f"{dataset_name}-{new_mention.topic_id}"
+                        if dataset_topic_key not in self.sentences_by_topic.keys():
+                            raise ValueError(f"There is a mismatch between the dataset_topic_key {dataset_topic_key} from mention {new_mention.mention_id} and these keys {self.sentences_by_topic.keys()} ")
+                        
+                        self.mentions_by_topic[dataset_topic_key].append(new_mention.mention_id)
+
+
+    def read_conll_file(self,doc_conll_path:str) ->dict: 
         Token = namedtuple("Token", "conll_doc_key sentence_id token_id token_str coref_chain")
 
         current_document_id = ''
@@ -169,12 +196,7 @@ class CDCR_Dataset:
 
                     current_document_list.append(token)
 
-        topics = []
-        for key in dict_documents.keys():
-            topics.append(key.split('/')[0])
-        topics = list(set(topics))
-        
-        return dict_documents, topics
+        return dict_documents
     
     def make_dict_of_sentences(self, documents: dict) -> Dict:
         doc_dict = {}
@@ -202,11 +224,9 @@ class CL_Dataset(Dataset):
 
         #Load pair keys and labels
         if mode=="train":
-            positive_pairs, positive_labels = self.load_sample_keys_and_labels(pairs_path="positive_pairs.json",label=1)
-            negative_pairs, negative_labels = self.load_sample_keys_and_labels(pairs_path="negative_pairs.json",label=0)
 
-            self.all_pairs = positive_pairs + negative_pairs
-            self.all_labels = positive_labels + negative_labels
+            self.all_pairs, self.all_labels = return_pairs_and_labels(cdcr_dataset=self.cdcr_dataset,
+                                                                        mention_type=self.mention_type)            
 
         elif mode == 'inference':
             self.keys_list = list(self.tokenized_mentions.keys())
@@ -229,6 +249,7 @@ class CL_Dataset(Dataset):
         mention_keys = [key for key in self.cdcr_dataset.mentions_by_type[self.mention_type] if key in self.cdcr_dataset.mentions]
         context_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[0]) for key in mention_keys]
         mention_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[1]) for key in mention_keys]
+        #TODO turn the 120 into parameter
         encoded_text = self.tokenizer(text=context_texts,text_pair=mention_texts,padding="max_length",max_length=120,truncation="only_first")
 
         # Create a dictionary to store the mappings
@@ -258,15 +279,7 @@ class CL_Dataset(Dataset):
         
         return tokenized_dict
 
-        
-    def load_sample_keys_and_labels(self, pairs_path,label):
-
-        with open(pairs_path,"r") as json_file:
-            pairs = json.load(json_file)[self.mention_type]
-        
-        labels = [label]*len(pairs)
-        return list(pairs.keys()), labels
-    
+          
     def decode_input_ids(self,input_id):
         return self.tokenizer.decode(input_id)
 
@@ -290,8 +303,6 @@ class CL_Dataset(Dataset):
             encoding_array_mention = np.array([self.tokenized_mentions[key]["input_ids"], self.tokenized_mentions[key]["attention_mask"]])
             return index, encoding_array_mention
         
-
-
 
 class CustomSubset(Subset):
     def __init__(self, dataset, indices,mode):

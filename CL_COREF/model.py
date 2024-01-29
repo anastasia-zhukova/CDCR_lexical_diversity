@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 class SiameseNetwork(nn.Module):    
 
-    def __init__(self, model,tokenizer, mlp_hidden_dim=1024,device="cpu"):        
+    def __init__(self, model,tokenizer, mlp_hidden_dim=1024):        
         
         super(SiameseNetwork, self).__init__()
 
@@ -16,9 +16,6 @@ class SiameseNetwork(nn.Module):
         # MLP layers
         self.mlp_cls_embed = self.build_mlp()
         self.mlp_mention_embed = self.build_mlp()
-
-        #Device
-        self.device = device
 
     def build_mlp(self):
         return nn.Sequential(
@@ -38,10 +35,9 @@ class SiameseNetwork(nn.Module):
         return output
     
     def encode_sentence(self, input_array):
-        transposed = input_array.transpose(0, 1).to(self.device)
-        batch_input_ids = transposed[0]
         
-        batch_attention_mask = transposed[1]
+        batch_input_ids = input_array[0]
+        batch_attention_mask = input_array[1]
 
         # Extract indices of [E] and [/E] tokens
         e_start_idx = batch_input_ids.eq(self.tokenizer.convert_tokens_to_ids('[E]')).nonzero(as_tuple=True)
@@ -63,7 +59,7 @@ class SiameseNetwork(nn.Module):
 
         # Mask tokens outside the mention
 
-        indices = torch.arange(last_hidden_states.size(1),device=self.device) #Create indices for each token (dimension 1)
+        indices = torch.arange(last_hidden_states.size(1),device=last_hidden_states.device) #Create indices for each token (dimension 1)
         
         # Create masks based on start and end indices
         start_mask = indices >= e_start_idx[1].unsqueeze(1) # dim 1 is # tokens

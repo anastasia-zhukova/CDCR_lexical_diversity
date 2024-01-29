@@ -56,7 +56,7 @@ def unnest_dictionary(input_dict,key=''):
 
     return unnested_dict
 
-def create_pairs(dict_sentences_pairs_similarity,mentions,mentions_by_sentence, mention_type):
+def create_pairs(dict_sentences_pairs_similarity,mentions,mentions_by_sentence, mention_type)->dict:
     dict_positive_pairs_by_topic = defaultdict(dict)
     dict_negative_pairs_by_topic = defaultdict(dict)
 
@@ -117,5 +117,6 @@ def return_pairs_and_labels (cdcr_dataset, mention_type):
     #Extract keys from pairs, not the similarity score
     all_pairs = list(positive_pairs.keys()) + list(negative_pairs.keys())
     all_labels = positive_labels + negative_labels
+    all_scores = list(positive_pairs.values()) + list(negative_pairs.values())
 
-    return all_pairs,all_labels
+    return all_pairs,all_labels,all_scores

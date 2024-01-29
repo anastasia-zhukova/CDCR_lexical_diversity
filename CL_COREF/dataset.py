@@ -226,13 +226,13 @@ class CL_Dataset(Dataset):
         #Load pair keys and labels
         if mode=="train":
             start_time = time.time()
-            self.all_pairs, self.all_labels = return_pairs_and_labels(cdcr_dataset=self.cdcr_dataset,
+            self.all_pairs, self.all_labels, all_scores = return_pairs_and_labels(cdcr_dataset=self.cdcr_dataset,
                                                                         mention_type=self.mention_type)            
             end_time = time.time()
             elapsed_time = end_time - start_time
             print(f"Time elapsed for sampling: {elapsed_time} seconds")
             if export_samples:
-                dict_samples = {f"{k1}###{k2}": v for (k1, k2), v in zip(self.all_pairs,self.all_labels)}
+                dict_samples = {f"{k1}###{k2}": [label,score] for (k1, k2), label,score in zip(self.all_pairs,self.all_labels,all_scores)}
                 json_file_path = f'{name}_samples_{ self.mention_type}.json'
 
                 # Export the dictionary to JSON

@@ -40,7 +40,7 @@ python -m torch.utils.collect_env
 nvcc -V
 
 # Run the script:
-python -u train.py --job_id=${SLURM_JOB_ID} --mention_type event --train_batch_size 32 --val_batch_size 32 --epochs 100 --export_samples
+python -u train.py --job_id=${SLURM_JOB_ID} --mention_type event --train_batch_size 32 --val_batch_size 32 --num_epochs 100 --export_samples
 
 # Run the script with logger:
 #python -u train_with_logger.py -l ~/${SLURM_JOB_NAME}_${SLURM_JOB_ID}  -t True -p True -d True -s True -f True

@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=train-cross-encoder-gpu
-#SBATCH -t 18:30:00                  # estimated time # TODO: adapt to your needs
+#SBATCH -t 00:12:00                  # estimated time # TODO: adapt to your needs
 #SBATCH -p grete:shared              # the partition you are training on (i.e., which nodes), for nodes see sinfo -p grete:shared --format=%N,%G
 #SBATCH -G A100:1                   # take 1 GPU, see https://www.hlrn.de/doc/display/PUB/GPU+Usage for more options
 #SBATCH --mem-per-gpu=30G             # setting the right constraints for the splitted gpu partitions
@@ -40,7 +40,7 @@ python -m torch.utils.collect_env
 nvcc -V
 
 # Run the script:
-python -u train.py --job_id=${SLURM_JOB_ID} --mention_type event --train_batch_size 32 --val_batch_size 32 --epochs 100
+python -u train.py --job_id=${SLURM_JOB_ID} --mention_type event --train_batch_size 32 --val_batch_size 32 --epochs 100 --export_samples
 
 # Run the script with logger:
 #python -u train_with_logger.py -l ~/${SLURM_JOB_NAME}_${SLURM_JOB_ID}  -t True -p True -d True -s True -f True

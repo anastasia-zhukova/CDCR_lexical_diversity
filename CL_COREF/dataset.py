@@ -212,7 +212,7 @@ class CDCR_Dataset:
 
 
 class CL_Dataset(Dataset):
-    def __init__(self,name,data_paths,context_method,mention_type,tokenizer, special_mention_tokens,mode="train"): #Initialized tokenizer
+    def __init__(self,name,data_paths,context_method,mention_type,tokenizer, special_mention_tokens,mode="train",export_samples="False"): #Initialized tokenizer
         #I will tokenize all the sequences up-front
 
         self.cdcr_dataset = CDCR_Dataset(name=name, data_path=data_paths,context_method=context_method,special_mention_tokens=special_mention_tokens)
@@ -231,6 +231,15 @@ class CL_Dataset(Dataset):
             end_time = time.time()
             elapsed_time = end_time - start_time
             print(f"Time elapsed for sampling: {elapsed_time} seconds")
+            if export_samples:
+                dict_samples = {f"{k1}###{k2}": v for (k1, k2), v in zip(self.all_pairs,self.all_labels)}
+                json_file_path = f'{name}_samples_{ self.mention_type}.json'
+
+                # Export the dictionary to JSON
+                with open(json_file_path, 'w') as json_file:
+                    json.dump(dict_samples, json_file, indent=4)
+
+                print(f'Nested dictionary has been exported to {json_file_path}.')
             
         elif mode == 'inference':
             self.keys_list = list(self.tokenized_mentions.keys())

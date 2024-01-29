@@ -24,6 +24,7 @@ if __name__ == '__main__':
     parser.add_argument('--train_batch_size', type=int, default=32, help='Batch size for training')
     parser.add_argument('--val_batch_size', type=int, default=64, help='Batch size for validation')
     parser.add_argument('--num_epochs', type=int, default=5, help='Number of epochs')
+    parser.add_argument('--export_samples', action='store_true', default=False, help='Export samples or not')
     #Job ID to check logs
     parser.add_argument('--job_id', type=str, default= '')
     ## Parameters
@@ -41,6 +42,7 @@ if __name__ == '__main__':
     special_tokens = args.special_tokens
     train_batch_size = args.train_batch_size
     val_batch_size = args.val_batch_size
+    export_samples = args.export_samples
     job_id = args.job_id
     #num_epochs = 100 for events and 50 for entities
     num_epochs = args.num_epochs
@@ -72,7 +74,7 @@ if __name__ == '__main__':
     #Load data
     # ECB+ topic 34 anomaly is accounted for in the samples
     cl_cdcr_train = CL_Dataset(name=train_dataset_name,data_paths=train_conll_paths,context_method=context_method,
-                            mention_type=mention_type,tokenizer=tokenizer, special_mention_tokens=special_tokens,mode="train") 
+                            mention_type=mention_type,tokenizer=tokenizer, special_mention_tokens=special_tokens,mode="train",export_samples=export_samples) 
 
     cl_cdcr_val = CL_Dataset(name=val_dataset_name,data_paths=val_conll_paths,context_method=context_method,
                             mention_type=mention_type,tokenizer=tokenizer, special_mention_tokens=special_tokens,mode="inference") 

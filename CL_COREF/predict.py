@@ -2,12 +2,11 @@
 import argparse
 import os
 import torch
-from torch.utils.data import DataLoader 
-from transformers import RobertaTokenizer, RobertaModel
 
+from dataloader import create_data_loader
 from dataset import CL_Dataset
-from evaluation import compute_cdcr_metrics
-from model import SiameseNetwork
+from evaluation import predict_and_evaluate
+from model import create_tokenizer, create_siamese_model
 
 #Load model and tokenizer
 if __name__ == '__main__':
@@ -15,60 +14,51 @@ if __name__ == '__main__':
     # Define arguments
     parser.add_argument('--model_path', type=str)
     args = parser.parse_args()
-
-    model_path = args.model_path # By Param
+    
+    #Initialize model
+    model_path = args.model_path
     model_path_split = model_path.split("/")
 
-    language_model = model_path_split[2] # I should read it from the model's path
-    mention_type=model_path_split[1] #Read from model's path
+    mention_type=model_path_split[1] 
+    language_model_name = model_path_split[2]
+    special_tokens = model_path_split[3].split("_")[1:]
+    
 
-    torch_device =  "cuda" if torch.cuda.is_available() else "cpu"
-    print(torch_device)
-    device = torch.device(torch_device)
-    base_language_model = RobertaModel.from_pretrained(pretrained_model_name_or_path= language_model)
-    # Initialize tokenizer
-    special_tokens = ['[E]', '[/E]']
-    tokenizer = RobertaTokenizer.from_pretrained(language_model)
-    tokenizer.add_tokens(special_tokens)
-    #Initialize siamese model and load weights
-    model = SiameseNetwork(model=base_language_model,tokenizer=tokenizer,device=device).to(device)
+    end_start_special_tokens = []
+    for token in special_tokens:
+        end_start_special_tokens.append(f"[{token}]")
+        end_start_special_tokens.append(f"[/{token}]")
+
+    tokenizer = create_tokenizer(language_model_name,end_start_special_tokens)
+    model = create_siamese_model(language_model_name,tokenizer)
+    #Load weights
     model.load_state_dict( torch.load(model_path, map_location=device))
 
+    device = torch.device('cuda:0')
+    model.to(device)
 
+    #create dataloaders
     test_batch_size=128
 
-    #Load data
-    # Data
-    ecbplus_dataset_name = "ecbplus_test"
-    ecbplus_test = CL_Dataset(name=ecbplus_dataset_name,data_paths=['../CDCR/data/ECBplus-prep/output_data/test'],context_method='hsu',
-                        mention_type=mention_type,tokenizer=tokenizer, special_mention_tokens=special_tokens,mode="inference") 
-
-    ecbplus_test_dataloader= DataLoader(ecbplus_test, batch_size=test_batch_size, shuffle=False)
-
-    newswcl50_dataset_name = "newswcl50"
-    newswcl50 = CL_Dataset(name=newswcl50_dataset_name,data_paths=['../CDCR/data/NewsWCL50-prep/output_data/train',
-                                                                    '../CDCR/data/NewsWCL50-prep/output_data/val',
-                                                                    '../CDCR/data/NewsWCL50-prep/output_data/test'],
-                                                                    context_method='hsu',mention_type=mention_type,tokenizer=tokenizer, 
-                                                                    special_mention_tokens=special_tokens,mode="inference") 
-
-    newswcl50_dataloader= DataLoader(newswcl50, batch_size=test_batch_size, shuffle=False)
+    dict_test_data = {"ecbplus_test":['../CDCR/data/ECBplus-prep/output_data/test'], 
+    "newswcl50":['../CDCR/data/NewsWCL50-prep/output_data/train',
+     '../CDCR/data/NewsWCL50-prep/output_data/val',
+     '../CDCR/data/NewsWCL50-prep/output_data/test']}
 
     #Predict
-    model.eval()
-
-    ecbplus_test_metrics, ecbplus_test_prediction = compute_cdcr_metrics(cl_cdcr_dataset=ecbplus_test,dataloader=ecbplus_test_dataloader,model=model,metrics="all")
-    newswcl50_metrics, newswcl50_prediction = compute_cdcr_metrics(cl_cdcr_dataset=newswcl50,dataloader=newswcl50_dataloader,model=model,metrics="all")
-
-    print("ECB+ results",ecbplus_test_metrics)
-    print("NewsWCL50 results",newswcl50_metrics)
-
     predictions_path = os.path.join(os.getcwd(), "predictions/")
     if not os.path.exists(predictions_path):
         os.makedirs(predictions_path)
 
+    model.eval()
 
-    ecbplus_test_prediction.to_csv(f"{predictions_path}{ecbplus_dataset_name}_,{mention_type}.csv")
-    newswcl50_prediction.to_csv(f"{predictions_path}{newswcl50_dataset_name}_,{mention_type}.csv")
-    print("predictions exported to", predictions_path)
+    for dataset_name,data_paths in dict_test_data.items():
+        cl_cdcr_dataset = CL_Dataset(name=dataset_name,data_paths=data_paths,context_method='hsu',
+                mention_type=mention_type,tokenizer=tokenizer, special_mention_tokens=special_tokens,mode="inference") 
+        dataloader = create_data_loader(cl_cdcr=cl_cdcr_dataset,batch_size=test_batch_size)
+        df_metrics, df_prediction = predict_and_evaluate(dataloader=dataloader,device=device,model=val_model,cl_cdcr_dataset=cl_cdcr_dataset,metrics="all")
+        print(f"{dataset_name} results",df_metrics)
+        file_path = f"{predictions_path}{dataset_name}_,{mention_type}.csv"
+        df_prediction.to_csv(file_path)
+        print(f"{dataset_name} predictions exported to {file_path}")
 

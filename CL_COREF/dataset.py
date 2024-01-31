@@ -2,6 +2,7 @@ from collections import namedtuple, defaultdict
 import json
 import numpy as np
 import os
+import pandas as pd
 import time
 from torch.utils.data import Dataset, Subset
 from typing import Dict, Any
@@ -12,8 +13,8 @@ from sampling import return_pairs_and_labels
 class Mention:
 
 
-    def __init__(self, mention_data: Dict[str, Any], type: str, source_path: str):
-        self.type = type
+    def __init__(self, mention_data: Dict[str, Any], m_type: str, source_path: str):
+        self.type = m_type
         self.source_path = source_path
         self.new_context = mention_data.get('mention_context')
 
@@ -61,8 +62,14 @@ class Mention:
             possible_sentences.pop()
         document_context = [value for _, value in sorted(doc_sentences_dict[possible_sentences[0]].items())] + [value for _, value in sorted(doc_sentences_dict[possible_sentences[1]].items())]
         self.new_context= (document_context,mention_context)
-
-
+        
+    def return_gold_topic_representation(self)->dict:
+        return {
+            "mention_id": self.mention_id,
+            "subtopic_id": self..subtopic_id,
+            "coref_chain": self.coref_chain,
+            "mention_type": self.type
+        }
 
     def __repr__(self):
         return f"Mention(coref_chain={self.coref_chain}, tokens_str={self.tokens_str})"
@@ -80,12 +87,19 @@ class CDCR_Dataset:
         self.mentions_by_topic = defaultdict(list)
         self.mentions_by_sentence = defaultdict(list)
         self.mentions_by_type = defaultdict(list)
+        self.mentions_gold_topic_repr = []
         self.sentences_by_topic = defaultdict(dict)
         self.context_method = context_method
         self.special_mention_tokens=special_mention_tokens
 
         self.load_mentions()
+    
+    def return_gold_topics_df():
+        gold_clusters_df = pd.DataFrame(self.mentions_gold_topic_repr)
+        gold_clusters_df["gold_cluster"] = pd.Categorical(gold_clusters_df["coref_chain"]).codes
 
+        return gold_clusters_df
+        
     def load_mentions(self):
         entity_types = {"/entity_mentions.json":"entity",
                         "/event_mentions.json":"event"} 
@@ -133,7 +147,7 @@ class CDCR_Dataset:
                         raw_mentions = json.load(f)
                     
                     for mention_dict in raw_mentions:
-                        new_mention = Mention(mention_dict,type=type_str,source_path=path)
+                        new_mention = Mention(mention_dict,m_type=type_str,source_path=path)
 
                         ## Validations before storing the mention
                         
@@ -162,6 +176,7 @@ class CDCR_Dataset:
                         self.mentions[new_mention.mention_id]=new_mention
                         self.mentions_by_sentence[new_mention.conll_sent_key].append(new_mention.mention_id)
                         self.mentions_by_type[new_mention.type].append(new_mention.mention_id)
+                        self.mentions_gold_topic_repr.append(new_mention.return_gold_topic_representation())
 
                         #Grouping by dataset name and topic id
 
@@ -170,6 +185,8 @@ class CDCR_Dataset:
                             raise ValueError(f"There is a mismatch between the dataset_topic_key {dataset_topic_key} from mention {new_mention.mention_id} and these keys {self.sentences_by_topic.keys()} ")
                         
                         self.mentions_by_topic[dataset_topic_key].append(new_mention.mention_id)
+
+        
 
 
     def read_conll_file(self,doc_conll_path:str) ->dict: 
@@ -306,14 +323,11 @@ class CL_Dataset(Dataset):
     def __getitem__(self, index): 
         if self.mode=="train":
             key_mention1, key_mention2= self.all_pairs[index]
-            encoding_array_mention1= np.array([self.tokenized_mentions[key_mention1]["input_ids"], self.tokenized_mentions[key_mention1]["attention_mask"]])
-            encoding_array_mention2= np.array([self.tokenized_mentions[key_mention2]["input_ids"], self.tokenized_mentions[key_mention2]["attention_mask"]])
-            return encoding_array_mention1,encoding_array_mention2, self.all_labels[index]
+            return self.tokenized_mentions[key_mention1],self.tokenized_mentions[key_mention2], self.all_labels[index]
         
         else: #Inference
             key = self.keys_list[index]
-            encoding_array_mention = np.array([self.tokenized_mentions[key]["input_ids"], self.tokenized_mentions[key]["attention_mask"]])
-            return index, encoding_array_mention
+            return index, self.tokenized_mentions[key]
         
 
 class CustomSubset(Subset):

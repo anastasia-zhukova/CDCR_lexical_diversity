@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from transformers import RobertaTokenizer, RobertaModel
+
 class SiameseNetwork(nn.Module):    
 
     def __init__(self, model,tokenizer, mlp_hidden_dim=1024):        
@@ -26,18 +28,15 @@ class SiameseNetwork(nn.Module):
             nn.Linear(self.mlp_hidden_dim, self.mlp_hidden_dim)
         )
     
-    def forward(self, array_mention):        
+    def forward(self, batch_input_ids,batch_attention_mask):        
         # Encode sentences        
-        cls_embed, mention_embed = self.encode_sentence(array_mention)
+        cls_embed, mention_embed = self.encode_sentence(batch_input_ids,batch_attention_mask)
 
         # Pass through MLP layers        
         output = self.mlp_concat(cls_embed,mention_embed)
         return output
     
-    def encode_sentence(self, input_array):
-        
-        batch_input_ids = input_array[0]
-        batch_attention_mask = input_array[1]
+    def encode_sentence(self, batch_input_ids,batch_attention_mask):
 
         # Extract indices of [E] and [/E] tokens
         e_start_idx = batch_input_ids.eq(self.tokenizer.convert_tokens_to_ids('[E]')).nonzero(as_tuple=True)
@@ -97,3 +96,15 @@ class CustomContrastiveLoss(nn.Module):
         loss = label.float()  * distance.pow(2) + (1 - label).float() * F.relu(self.margin - distance).pow(2)
 
         return loss.mean()  # Take the mean over the batch
+
+
+def create_tokenizer(language_model_name,special_tokens):
+    tokenizer = RobertaTokenizer.from_pretrained(language_model_name)
+    tokenizer.add_tokens(special_tokens)
+    return tokenizer
+
+def create_siamese_model(language_model_name,tokenizer_instance):
+    language_model_instance = RobertaModel.from_pretrained(pretrained_model_name_or_path= language_model_name) 
+    siamese_model = SiameseNetwork(model=language_model_instance,tokenizer=tokenizer_instance)
+    return siamese_model
+

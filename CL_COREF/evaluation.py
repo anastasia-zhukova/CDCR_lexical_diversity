@@ -6,32 +6,34 @@ import torch.nn.functional as F
 from coval.conll.reader import get_doc_mentions, set_annotated_parse_trees, get_doc_mentions, remove_nested_coref_mentions, get_mention_assignments
 from coval.eval import evaluator
 
-###
-# Merge gold and predicted clusters in one dataset
-###
+def create_embeddings_by_mention(dataloader,device,model,keys_list):
+    dict_embeddings_by_mention= {}
 
-def return_embeddings_by_topic (dataloader,model,cl_cdcr_dataset):
-    #Store vector representations by topic
-    dict_embeddings_by_topic={}
-    #Validation dataloader
-    for indices, array_mention in dataloader: #Validation batch size should be different. It will be way faster
+    for indices, input_ids, attention_masks in val_dataloader: #Validation batch size should be different. It will be way faster
         # I also need to get the keys from the mentions to cluster them later
         with torch.no_grad():
-            output_mentions=model(array_mention)
-            batch_keys = [cl_cdcr_dataset.keys_list[i] for i in indices]
+            input_ids, attention_masks = input_ids.to(device), attention_masks.to(device)
+            embeddings = model(input_ids,attention_masks )
+        
+        indices_list = indices.tolist()
+        keys_list = [cdcr_keys_list[index] for index in indices_list]
+        embeddings_list = embeddings.tolist()
 
-            for key, embedding in zip(batch_keys,output_mentions):
-                mention_temp = cl_cdcr_dataset.cdcr_dataset.mentions[key]
-                topic_number = mention_temp.topic_id
+        dict_embeddings_batch = dict(zip(keys_list, embeddings_list))
+        # Update the main dictionary
+        dict_embeddings_by_mention.update(dict_embeddings_batch)
+    return dict_embeddings_by_mention
 
-                #Stores embeddings by topic
-                if topic_number in dict_embeddings_by_topic:
-                    dict_embeddings_by_topic[topic_number][key] = embedding
-                else:
-                    dict_embeddings_by_topic[topic_number] = {key: embedding}
+def return_embeddings_by_topic(dict_embeddings_by_mention,mentions)
+    dict_embeddings_by_topic={}
 
+    for mention_key,embedding in dict_embeddings_by_mention.items():
+        topic_id_temp = mentions[mention_key].topic_id
+        if topic_id_temp in dict_embeddings_by_topic:
+            dict_embeddings_by_topic[topic_id_temp][mention_key] = embedding
+        else:
+            dict_embeddings_by_topic[topic_id_temp] = {mention_key: embedding}
     return dict_embeddings_by_topic
-
 
 def predict_clusters(dict_embeddings_by_topic):
     predicted_clusters_df_list = []
@@ -58,45 +60,6 @@ def predict_clusters(dict_embeddings_by_topic):
 
     predicted_clusters_df = pd.concat(predicted_clusters_df_list)
     return predicted_clusters_df
-
-def load_gold_clusters(cl_cdcr_dataset):
-    #Load gold clusters
-    # Your loop to create the list of dictionaries
-    mentions_data = []  
-
-    for k, v in cl_cdcr_dataset.cdcr_dataset.mentions.items():
-        mention_id = k
-        topic_id = v.topic_id
-        subtopic_id = v.subtopic_id
-        coref_chain = v.coref_chain
-        mention_type = v.type
-
-        # Create a dictionary to store the values for each mention
-        mention_dict = {
-            "mention_id": mention_id,
-            "subtopic_id": subtopic_id,
-            "coref_chain": coref_chain,
-            "mention_type": mention_type
-        }
-
-        # Append the dictionary to the list
-        mentions_data.append(mention_dict)
-
-    # Create a DataFrame from the list of dictionaries
-    gold_clusters_df = pd.DataFrame(mentions_data)
-
-    set_coref_chains = gold_clusters_df.coref_chain.unique()
-    enum_dict_coref = {item: index for index, item in enumerate(set_coref_chains)}
-    gold_clusters_df["gold_cluster"] = gold_clusters_df["coref_chain"].map(enum_dict_coref)
-
-    return gold_clusters_df
-
-def return_gold_predicted_clusters(cl_cdcr_dataset,dataloader,model):
-    gold_clusters_df = load_gold_clusters(cl_cdcr_dataset)
-    dict_embeddings_by_topic = return_embeddings_by_topic (dataloader,model,cl_cdcr_dataset)
-    predicted_clusters_df = predict_clusters(dict_embeddings_by_topic)
-    merged_df = gold_clusters_df.merge(predicted_clusters_df,how="inner", on="mention_id")
-    return merged_df
 
 
 
@@ -200,7 +163,7 @@ allmetrics = [('mentions', evaluator.mentions), ('muc', evaluator.muc),
         ('lea', evaluator.lea)]
 
 
-def compute_cdcr_metrics(cl_cdcr_dataset,dataloader,model,metrics,NP_only=False, 
+def compute_cdcr_metrics(cdcr_dataset_name,predictions_df,metrics,NP_only=False, 
                          remove_nested=False, keep_singletons=True, min_span=False):
     #Define metrics
     if 'all' in metrics:
@@ -212,59 +175,20 @@ def compute_cdcr_metrics(cl_cdcr_dataset,dataloader,model,metrics,NP_only=False,
             metrics = allmetrics
 
     #Compute metrics
-    merged_df = return_gold_predicted_clusters(cl_cdcr_dataset,dataloader,model)
 
-    doc_coref_infos = get_coref_infos(dataset_name=cl_cdcr_dataset.cdcr_dataset.name, predictions_df=merged_df,
+    doc_coref_infos = get_coref_infos(dataset_name=cdcr_dataset_name, predictions_df=predictions_df,
                 key_column_name='gold_cluster',prediction_column_name='predicted_cluster', 
                     NP_only=NP_only, remove_nested=remove_nested, keep_singletons=keep_singletons, min_span=min_span)
     
     df_metrics = compute_metrics_cdcr(doc_coref_infos=doc_coref_infos,metrics=metrics)
 
+    return df_metrics
+
+def predict_and_evaluate(dataloader,device,model,cl_cdcr_dataset,metrics="all"):
+    cdcr_dataset=cl_cdcr_val.cdcr_dataset
+    dict_embeddings_by_mention = create_embeddings_by_mention(dataloader=dataloader,device=device,model=model,keys_list=cl_cdcr_dataset.keys_list)
+    dict_embeddings_by_topic=return_embeddings_by_topic(dict_embeddings_by_mention=dict_embeddings_by_mention,mentions=cdcr_dataset.mentions)
+    predicted_clusters_df = predict_clusters(dict_embeddings_by_topic)
+    merged_df = cdcr_dataset.return_gold_topics_df().merge(predicted_clusters_df,how="inner", on="mention_id")
+    df_metrics = compute_cdcr_metrics(cdcr_dataset_name=cdcr_dataset.name,predictions_df=merged_df,metrics=metrics)
     return df_metrics, merged_df
-
-
-
-
-
-# Old code reading from CoNLL files
-# import os
-
-# def format_line(dataset_name,row, cluster):
-#     return f"{dataset_name}\t({row[cluster]})"
-
-
-# def write_output_to_file(df, dataset_name, output_file_name, cluster_col_name):
-#     # Construct the output directory path
-#     output_directory_path = os.path.join(os.getcwd(), "conll_files")
-
-#     # Ensure the output directory exists; if not, create it
-#     if not os.path.exists(output_directory_path):
-#         os.makedirs(output_directory_path)
-
-#     output_file = os.path.join(output_directory_path, output_file_name)
-#     with open(output_file, "w") as f:
-#         f.write(f"#begin document ({dataset_name}); part 000\n")
-#         for _, row in df.iterrows():
-#             f.write(format_line(dataset_name, row, cluster_col_name) + "\n")
-#         f.write("#end document\n")
-
-#     print(f"File '{output_file}' written successfully.")
-
-# key_filename=f"key_{cl_cdcr_val.cdcr_dataset.name}.conll"
-# write_output_to_file(merged_df,cl_cdcr_val.cdcr_dataset.name,key_filename,"gold_cluster")
-# sys_filename=f"sys_{cl_cdcr_val.cdcr_dataset.name}.conll"
-# write_output_to_file(merged_df,cl_cdcr_val.cdcr_dataset.name,sys_filename,"predicted_cluster")
-
-# #Report metrics
-# computed_metrics = compute_metrics_cdcr(os.path.join(os.getcwd(), "conll_files",key_filename),
-#                      os.path.join(os.getcwd(), "conll_files",sys_filename),
-#                        metrics, NP_only, remove_nested,
-#         keep_singletons, min_span)
-
-# computed_metrics = computed_metrics.set_index("Metric")
-# computed_metrics
-
-# conll=computed_metrics.loc["muc", "F1"] + computed_metrics.loc["bcub", "F1"] + computed_metrics.loc["ceafe", "F1"]
-# conll = (conll / 3)
-
-# conll

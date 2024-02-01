@@ -37,7 +37,7 @@ def cl_collate_fn_val(batch):
 
 def create_data_loader(cl_cdcr,batch_size):
     shuffle = True if cl_cdcr.mode=='train' else False
-    collate_fn = cl_collate_fn_train if mode=='train' else cl_collate_fn_val
+    collate_fn = cl_collate_fn_train if cl_cdcr.mode=='train' else cl_collate_fn_val
     dataloader= DataLoader(cl_cdcr, batch_size=batch_size, shuffle=shuffle,collate_fn=collate_fn )
     return dataloader
 

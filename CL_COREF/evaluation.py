@@ -6,17 +6,20 @@ import torch.nn.functional as F
 from coval.conll.reader import get_doc_mentions, set_annotated_parse_trees, get_doc_mentions, remove_nested_coref_mentions, get_mention_assignments
 from coval.eval import evaluator
 
+# Params
+allmetrics = [('mentions', evaluator.mentions), ('muc', evaluator.muc),
+        ('bcub', evaluator.b_cubed), ('ceafe', evaluator.ceafe),
+        ('lea', evaluator.lea)]
+
 def create_embeddings_by_mention(dataloader,device,model,keys_list):
     dict_embeddings_by_mention= {}
 
-    for indices, input_ids, attention_masks in val_dataloader: #Validation batch size should be different. It will be way faster
-        # I also need to get the keys from the mentions to cluster them later
+    for indices, input_ids, attention_masks in dataloader:
         with torch.no_grad():
             input_ids, attention_masks = input_ids.to(device), attention_masks.to(device)
-            embeddings = model(input_ids,attention_masks )
+            embeddings = model(input_ids,attention_masks)
         
-        indices_list = indices.tolist()
-        keys_list = [cdcr_keys_list[index] for index in indices_list]
+        keys_list = [keys_list[index] for index in indices.tolist()]
         embeddings_list = embeddings.tolist()
 
         dict_embeddings_batch = dict(zip(keys_list, embeddings_list))
@@ -24,7 +27,7 @@ def create_embeddings_by_mention(dataloader,device,model,keys_list):
         dict_embeddings_by_mention.update(dict_embeddings_batch)
     return dict_embeddings_by_mention
 
-def return_embeddings_by_topic(dict_embeddings_by_mention,mentions)
+def return_embeddings_by_topic(dict_embeddings_by_mention,mentions):
     dict_embeddings_by_topic={}
 
     for mention_key,embedding in dict_embeddings_by_mention.items():
@@ -40,8 +43,7 @@ def predict_clusters(dict_embeddings_by_topic):
     max_predicted_cluster_value = 0
 
     for topic, dict_topic in dict_embeddings_by_topic.items():
-        list_keys_dict_topic = list(dict_topic.keys())
-        list_of_embeddings = [dict_topic[key] for key in list_keys_dict_topic]
+        list_of_embeddings = list(dict_topic.values())
         #Computes pairwise cosine similarity
         distances = torch.tensor([[1 - F.cosine_similarity(vec1, vec2, dim=0).item() for vec2 in list_of_embeddings] for vec1 in list_of_embeddings])
 
@@ -50,18 +52,16 @@ def predict_clusters(dict_embeddings_by_topic):
                                                 distance_threshold=0.2)
         fit = clustering.fit(distances)
 
-        #Implement CoNLL score with this fit. I gotta merge on mention_id
-        #Save as Dataframe
-        adjusted_predicted_label = fit.labels_+ max_predicted_cluster_value
-        predicted_df_by_topic = pd.DataFrame({"mention_id":list_keys_dict_topic,"predicted_cluster":adjusted_predicted_label,"topic_id":[topic]*len(list_keys_dict_topic)})
+        #Implement CoNLL score with this fit and save as Dataframe
+        adjusted_predicted_label = fit.labels_+ max_predicted_cluster_value #Ensure no label overlap when moving to another topic
+        predicted_df_by_topic = pd.DataFrame({"mention_id":list(dict_topic.keys()),
+                                              "predicted_cluster":adjusted_predicted_label,"topic_id":[topic]*len(dict_topic)})
         predicted_clusters_df_list.append(predicted_df_by_topic)
 
         max_predicted_cluster_value = max(adjusted_predicted_label) +1
 
     predicted_clusters_df = pd.concat(predicted_clusters_df_list)
     return predicted_clusters_df
-
-
 
 ### 
 # Compute CoNLL Score
@@ -133,15 +133,20 @@ def get_coref_infos(dataset_name, predictions_df,key_column_name,prediction_colu
 
     return doc_coref_infos
 
+def compute_cdcr_metrics(cdcr_dataset_name,predictions_df,metrics="all",NP_only=False, 
+                         remove_nested=False, keep_singletons=True, min_span=False):
+    #Define metrics 
+    metrics = allmetrics if 'all' in metrics else [(name, metric) for name, metric in allmetrics if name in metrics]
 
-def compute_metrics_cdcr(doc_coref_infos, metrics):
+    #Compute metrics
+    doc_coref_infos = get_coref_infos(dataset_name=cdcr_dataset_name, predictions_df=predictions_df,
+                key_column_name='gold_cluster',prediction_column_name='predicted_cluster', 
+                    NP_only=NP_only, remove_nested=remove_nested, keep_singletons=keep_singletons, min_span=min_span)
+    
 
     evaluation_results = []
-
     for name, metric in metrics:
-        recall, precision, f1 = evaluator.evaluate_documents(doc_coref_infos,
-                metric,
-                beta=1)
+        recall, precision, f1 = evaluator.evaluate_documents(doc_coref_infos,metric,beta=1)
         
         evaluation_results.append({
             'Metric': name,
@@ -149,43 +154,13 @@ def compute_metrics_cdcr(doc_coref_infos, metrics):
             'Precision': precision * 100,
             'F1': f1 * 100
         })
-    
+
     df_metrics = pd.DataFrame(evaluation_results).set_index("Metric")
-    conll_f1 = df_metrics.loc[["muc", "bcub", "ceafe"], "F1"].mean()
-    df_metrics.loc["conll", "F1"] = conll_f1
-
-    return df_metrics
-
-
-# Params
-allmetrics = [('mentions', evaluator.mentions), ('muc', evaluator.muc),
-        ('bcub', evaluator.b_cubed), ('ceafe', evaluator.ceafe),
-        ('lea', evaluator.lea)]
-
-
-def compute_cdcr_metrics(cdcr_dataset_name,predictions_df,metrics,NP_only=False, 
-                         remove_nested=False, keep_singletons=True, min_span=False):
-    #Define metrics
-    if 'all' in metrics:
-        metrics = allmetrics
-    else:
-        metrics = [(name, metric) for name, metric in allmetrics
-                if name in metrics]
-        if not metrics:
-            metrics = allmetrics
-
-    #Compute metrics
-
-    doc_coref_infos = get_coref_infos(dataset_name=cdcr_dataset_name, predictions_df=predictions_df,
-                key_column_name='gold_cluster',prediction_column_name='predicted_cluster', 
-                    NP_only=NP_only, remove_nested=remove_nested, keep_singletons=keep_singletons, min_span=min_span)
-    
-    df_metrics = compute_metrics_cdcr(doc_coref_infos=doc_coref_infos,metrics=metrics)
-
+    df_metrics.loc["conll", "F1"] = df_metrics.loc[["muc", "bcub", "ceafe"], "F1"].mean()
     return df_metrics
 
 def predict_and_evaluate(dataloader,device,model,cl_cdcr_dataset,metrics="all"):
-    cdcr_dataset=cl_cdcr_val.cdcr_dataset
+    cdcr_dataset=cl_cdcr_dataset.cdcr_dataset
     dict_embeddings_by_mention = create_embeddings_by_mention(dataloader=dataloader,device=device,model=model,keys_list=cl_cdcr_dataset.keys_list)
     dict_embeddings_by_topic=return_embeddings_by_topic(dict_embeddings_by_mention=dict_embeddings_by_mention,mentions=cdcr_dataset.mentions)
     predicted_clusters_df = predict_clusters(dict_embeddings_by_topic)

@@ -108,3 +108,16 @@ def create_siamese_model(language_model_name,tokenizer_instance):
     siamese_model = SiameseNetwork(model=language_model_instance,tokenizer=tokenizer_instance)
     return siamese_model
 
+def create_optimizer(learning_rate,model):
+    # Unwrap DataParallel if it's used
+    if isinstance(model, torch.nn.DataParallel):
+        model = model.module
+
+    #Create optimizer
+    optimizer_params = [
+    {'params': model.language_model.parameters(), 'lr': learning_rate},
+    {'params': model.mlp_cls_embed.parameters(), 'lr': learning_rate},
+    {'params': model.mlp_mention_embed.parameters(), 'lr': learning_rate},
+]
+    optimizer = torch.optim.AdamW(optimizer_params)
+    return optimizer

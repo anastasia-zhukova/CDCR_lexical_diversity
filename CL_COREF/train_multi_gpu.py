@@ -4,45 +4,14 @@ from transformers import logging
 import torch
 
 from dataloader import create_data_loader
-from dataset import CL_Dataset, CustomSubset
+from dataset import CL_Dataset
 from evaluation import predict_and_evaluate
-from model import CustomContrastiveLoss, create_tokenizer, create_siamese_model
+from model import CustomContrastiveLoss, create_tokenizer, create_siamese_model, create_optimizer
 
 logging.set_verbosity_error()
-
+#TODO set fixed setups of training and val paths instead of passing the paths by parameter
+#Then, add that setup identifier to the model's path
 #Functions
-
-def create_optimizer_and_loss(args,model):
-    # Unwrap DataParallel if it's used
-    if isinstance(model, torch.nn.DataParallel):
-        model = model.module
-
-    #Create optimizer
-    learning_rate = args.learning_rate
-    optimizer_params = [
-    {'params': model.language_model.parameters(), 'lr': learning_rate},
-    {'params': model.mlp_cls_embed.parameters(), 'lr': learning_rate},
-    {'params': model.mlp_mention_embed.parameters(), 'lr': learning_rate},
-]
-    optimizer = torch.optim.AdamW(optimizer_params)
-
-    #Create loss
-    margin=args.margin
-    contrastive_loss = CustomContrastiveLoss(margin=margin)
-
-    return optimizer, contrastive_loss
-    
-def optimizer_step(model_parameters,optimizer,loss_fn):
-     
-    loss = loss_fn(output_mentions1, output_mentions2, labels)
-    loss.backward()  # Backpropagation
-    torch.nn.utils.clip_grad_norm_(model_parameters, 1.0)
-    optimizer.step()  # Optimization step
-
-    torch.cuda.empty_cache()
-    return loss.item()
-    
-
 def train(gpu_id,args):
     #Initialize backend
     world_size=args.world_size
@@ -60,17 +29,17 @@ def train(gpu_id,args):
         end_start_special_tokens.append(f"[/{token}]")
 
     #Create model path
-    out_dir = os.path.join(os.getcwd(),"models/",f"{args.mention_type}",f"{language_model_name}",f"tokens_{"_".join(special_tokens)}")
+    out_dir = os.path.join(os.getcwd(),"models",args.mention_type,language_model_name,f"tokens_{'_'.join(special_tokens)}")
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
+
+    #Create tokenizer
+    tokenizer = create_tokenizer(language_model_name,end_start_special_tokens)
 
     #create dataloaders
     context_method = args.context_method
     mention_type = args.mention_type
     export_samples = args.export_samples
-
-
-
 
     cl_cdcr_train = CL_Dataset(name=args.train_dataset_name,data_paths=args.train_conll_paths,context_method=context_method,
                         mention_type=mention_type,tokenizer=tokenizer, special_mention_tokens=end_start_special_tokens,mode="train",export_samples=export_samples) 
@@ -83,25 +52,27 @@ def train(gpu_id,args):
     val_dataloader = create_data_loader(cl_cdcr=cl_cdcr_val,batch_size=args.args.val_batch_size)
 
     #Create model
-    tokenizer = create_tokenizer(language_model_name,end_start_special_tokens)
     model = create_siamese_model(language_model_name,tokenizer)
     device = torch.device('cuda:0')
-    model = create_model(language_model_instance,tokenizer)
-    #Optimizer and loss
-    optimizer, contrastive_loss = create_optimizer_and_loss(args,model)
+    model.to(device)
 
+    #Optimizer and loss
+    optimizer = create_optimizer(args.learning_rate,model)
+    contrastive_loss = CustomContrastiveLoss(margin=args.margin)
+    
+    #Distributed training
     if world_size>1:
+        os.environ['RANK'] = str(gpu_id)
         torch.distributed.init_process_group(backend='nccl', init_method='env://', world_size=world_size) #nccl is the backend for GPU only
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[i for i in range(world_size)])
 
-    model.to(device)
     model.train()
 
     #Training loop
     best_conll_f1 = 0.0
     for epoch in range(num_epochs):
         
-        accumulate_loss = 0
+        accumulated_loss = 0
 
         for input_ids1, attention_masks1,input_ids2,attention_masks2, labels in train_dataloader:
             optimizer.zero_grad()  # Zero the gradients
@@ -110,18 +81,23 @@ def train(gpu_id,args):
 
             output_mentions1 = model(input_ids1, attention_masks1)
             output_mentions2 = model(input_ids2, attention_masks2)
-            
-            batch_loss = optimizer_step(model_parameters=model.parameters(),optimizer=optimizer,loss_fn=contrastive_loss)
-            accumulate_loss += batch_loss
+
+            loss = contrastive_loss(output_mentions1, output_mentions2, labels)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
+            torch.cuda.empty_cache()
+            accumulated_loss += loss.item()
+
+        print(f'epoch {epoch+1}/{num_epochs}, Train accumulated loss: {accumulated_loss}')
 
         #Validation
         val_model = None
         if world_size>1:
             #Start model from scratch
-            
             # Create a model_state_dict without the 'module.' prefix added by parallel module
             model_state_dict = {k.replace('module.', ''): v for k, v in model.state_dict().items()}
-            new_model = create_model(language_model_instance,tokenizer)
+            new_model = create_siamese_model(language_model_name,tokenizer)
             new_model.load_state_dict(model_state_dict)
 
             new_model.to(device)
@@ -133,14 +109,14 @@ def train(gpu_id,args):
 
         df_metrics, _ = predict_and_evaluate(dataloader=val_dataloader,device=device,model=val_model,cl_cdcr_dataset=cl_cdcr_val,metrics="all")
         #Print epoch results
-        print(f'epoch {epoch+1}/{num_epochs}, Train accumulate loss: {accumulate_loss}')
+        val_conll_f1 = df_metrics.loc["conll","F1"]
         print(f'epoch {epoch+1}/{num_epochs}, eval conll: {val_conll_f1}')
 
         # Store the best model
-        val_conll_f1 = df_metrics.loc["conll","F1"]
         if val_conll_f1>best_conll_f1:
             best_conll_f1=val_conll_f1
-            torch.save(model.state_dict(), out_dir+f"/siamese_model_batch_{args.train_batch_size}_epochs_{num_epochs}.pth")
+            torch.save(model.state_dict(), os.path.join(out_dir, f"siamese_model_batch_{args.train_batch_size}_epochs_{num_epochs}.pth"))
+
             print(f'epoch {epoch+1}/{num_epochs}, model saved')
 
 
@@ -169,8 +145,6 @@ if __name__ == '__main__':
     
     # Parse arguments
     args = parser.parse_args()
-
-    job_id = args.job_id
     world_size = args.world_size
     
     if world_size>1:
@@ -179,8 +153,7 @@ if __name__ == '__main__':
         ngpus_per_node = torch.cuda.device_count()
         print(f"there are {ngpus_per_node} GPUs available")
         os.environ["MASTER_ADDR"] = "localhost"
-        os.environ["MASTER_PORT"] = "29501"
-        os.environ['RANK'] = str(gpu_id) 
+        os.environ["MASTER_PORT"] = "29501" 
         torch.multiprocessing.spawn(fn=train,args=(args,), nprocs = 2)
     else:
         train(0,args)

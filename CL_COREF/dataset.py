@@ -66,7 +66,7 @@ class Mention:
     def return_gold_topic_representation(self)->dict:
         return {
             "mention_id": self.mention_id,
-            "subtopic_id": self..subtopic_id,
+            "subtopic_id": self.subtopic_id,
             "coref_chain": self.coref_chain,
             "mention_type": self.type
         }

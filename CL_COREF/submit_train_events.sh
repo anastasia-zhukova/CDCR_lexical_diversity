@@ -41,7 +41,7 @@ nvcc -V
 
 # Run the script:
 #TODO Define train setups with fixed val and train paths in the train script and save the setup number in the models path
-python -u train.py --job_id=${SLURM_JOB_ID} --mention_type event --train_batch_size 64 --val_batch_size 128 --num_epochs 100
+python -u train.py --job_id=${SLURM_JOB_ID} --mention_type event --train_batch_size 32 --val_batch_size 128 --num_epochs 100
 
 # Run the script with logger:
 #python -u train_with_logger.py -l ~/${SLURM_JOB_NAME}_${SLURM_JOB_ID}  -t True -p True -d True -s True -f True

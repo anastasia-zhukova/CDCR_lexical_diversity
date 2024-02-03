@@ -66,14 +66,14 @@ def train(gpu_id,args):
         torch.distributed.init_process_group(backend='nccl', init_method='env://', world_size=world_size) #nccl is the backend for GPU only
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[i for i in range(world_size)])
 
-    model.train()
+    
 
     #Training loop
     best_conll_f1 = 0.0
     for epoch in range(num_epochs):
         
         accumulated_loss = 0
-
+        model.train()
         for input_ids1, attention_masks1,input_ids2,attention_masks2, labels in train_dataloader:
             optimizer.zero_grad()  # Zero the gradients
             input_ids1, attention_masks1,input_ids2,attention_masks2 = input_ids1.to(device), attention_masks1.to(device),input_ids2.to(device),attention_masks2.to(device)
@@ -91,23 +91,24 @@ def train(gpu_id,args):
 
         print(f'epoch {epoch+1}/{num_epochs}, Train accumulated loss: {accumulated_loss}')
 
-        #Validation
-        val_model = None
-        if world_size>1:
-            #Start model from scratch
-            # Create a model_state_dict without the 'module.' prefix added by parallel module
-            model_state_dict = {k.replace('module.', ''): v for k, v in model.state_dict().items()}
-            new_model = create_siamese_model(language_model_name,tokenizer)
-            new_model.load_state_dict(model_state_dict)
+        # #Validation
+        # val_model = None
+        # if world_size>1:
+        #     #Start model from scratch
+        #     # Create a model_state_dict without the 'module.' prefix added by parallel module
+        #     model_state_dict = {k.replace('module.', ''): v for k, v in model.state_dict().items()}
+        #     new_model = create_siamese_model(language_model_name,tokenizer)
+        #     new_model.load_state_dict(model_state_dict)
 
-            new_model.to(device)
-            val_model = new_model
-        else:
-            val_model = model
+        #     new_model.to(device)
+        #     val_model = new_model
+        # else:
+        #     val_model = model
         
-        val_model.eval()
-
-        df_metrics, _ = predict_and_evaluate(dataloader=val_dataloader,device=device,model=val_model,cl_cdcr_dataset=cl_cdcr_val,metrics="all")
+        # val_model.eval()
+        #df_metrics, _ = predict_and_evaluate(dataloader=val_dataloader,device=device,model=val_model,cl_cdcr_dataset=cl_cdcr_val,metrics="all")
+        model.eval()
+        df_metrics, _ = predict_and_evaluate(dataloader=val_dataloader,device=device,model=model,cl_cdcr_dataset=cl_cdcr_val,metrics="all")
         #Print epoch results
         val_conll_f1 = df_metrics.loc["conll","F1"]
         print(f'epoch {epoch+1}/{num_epochs}, eval conll: {val_conll_f1}')

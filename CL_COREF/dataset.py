@@ -93,13 +93,12 @@ class CDCR_Dataset:
         self.special_mention_tokens=special_mention_tokens
 
         self.load_mentions()
-    
-    def return_gold_topics_df():
+
+        #Create gold clusters dataframe
         gold_clusters_df = pd.DataFrame(self.mentions_gold_topic_repr)
         gold_clusters_df["gold_cluster"] = pd.Categorical(gold_clusters_df["coref_chain"]).codes
+        self.gold_clusters_df = gold_clusters_df
 
-        return gold_clusters_df
-        
     def load_mentions(self):
         entity_types = {"/entity_mentions.json":"entity",
                         "/event_mentions.json":"event"} 

@@ -11,7 +11,7 @@ allmetrics = [('mentions', evaluator.mentions), ('muc', evaluator.muc),
         ('bcub', evaluator.b_cubed), ('ceafe', evaluator.ceafe),
         ('lea', evaluator.lea)]
 
-def create_embeddings_by_mention(dataloader,device,model,keys_list):
+def create_embeddings_by_mention(dataloader,device,model,cl_dataset_keys_list):
     dict_embeddings_by_mention= {}
 
     for indices, input_ids, attention_masks in dataloader:
@@ -19,10 +19,9 @@ def create_embeddings_by_mention(dataloader,device,model,keys_list):
             input_ids, attention_masks = input_ids.to(device), attention_masks.to(device)
             embeddings = model(input_ids,attention_masks)
         
-        keys_list = [keys_list[index] for index in indices.tolist()]
-        embeddings_list = embeddings.tolist()
+        keys_list = [cl_dataset_keys_list[index] for index in indices.tolist()]
 
-        dict_embeddings_batch = dict(zip(keys_list, embeddings_list))
+        dict_embeddings_batch = {key: emb for key, emb in zip(keys_list, embeddings)}
         # Update the main dictionary
         dict_embeddings_by_mention.update(dict_embeddings_batch)
     return dict_embeddings_by_mention
@@ -50,10 +49,8 @@ def predict_clusters(dict_embeddings_by_topic):
         #Clustering
         clustering = AgglomerativeClustering(n_clusters=None, metric='precomputed', linkage='average',
                                                 distance_threshold=0.2)
-        fit = clustering.fit(distances)
-
         #Implement CoNLL score with this fit and save as Dataframe
-        adjusted_predicted_label = fit.labels_+ max_predicted_cluster_value #Ensure no label overlap when moving to another topic
+        adjusted_predicted_label = clustering.fit_predict(distances) + max_predicted_cluster_value #Ensure no label overlap when moving to another topic
         predicted_df_by_topic = pd.DataFrame({"mention_id":list(dict_topic.keys()),
                                               "predicted_cluster":adjusted_predicted_label,"topic_id":[topic]*len(dict_topic)})
         predicted_clusters_df_list.append(predicted_df_by_topic)
@@ -161,9 +158,9 @@ def compute_cdcr_metrics(cdcr_dataset_name,predictions_df,metrics="all",NP_only=
 
 def predict_and_evaluate(dataloader,device,model,cl_cdcr_dataset,metrics="all"):
     cdcr_dataset=cl_cdcr_dataset.cdcr_dataset
-    dict_embeddings_by_mention = create_embeddings_by_mention(dataloader=dataloader,device=device,model=model,keys_list=cl_cdcr_dataset.keys_list)
+    dict_embeddings_by_mention = create_embeddings_by_mention(dataloader=dataloader,device=device,model=model,cl_dataset_keys_list=cl_cdcr_dataset.keys_list)
     dict_embeddings_by_topic=return_embeddings_by_topic(dict_embeddings_by_mention=dict_embeddings_by_mention,mentions=cdcr_dataset.mentions)
     predicted_clusters_df = predict_clusters(dict_embeddings_by_topic)
-    merged_df = cdcr_dataset.return_gold_topics_df().merge(predicted_clusters_df,how="inner", on="mention_id")
+    merged_df = cdcr_dataset.gold_clusters_df.merge(predicted_clusters_df,how="inner", on="mention_id")
     df_metrics = compute_cdcr_metrics(cdcr_dataset_name=cdcr_dataset.name,predictions_df=merged_df,metrics=metrics)
     return df_metrics, merged_df

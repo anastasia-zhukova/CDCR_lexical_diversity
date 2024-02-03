@@ -1,6 +1,7 @@
 from collections import defaultdict
 from itertools import product
 import numpy as np
+import random
 from sentence_transformers import SentenceTransformer, util
 import statistics
 import torch
@@ -56,7 +57,13 @@ def unnest_dictionary(input_dict,key=''):
 
     return unnested_dict
 
-def create_pairs(dict_sentences_pairs_similarity,mentions,mentions_by_sentence, mention_type)->dict:
+def create_pairs(dict_sentences_pairs_similarity,cdcr_dataset, mention_type, additional_sampling = False)->dict:
+
+    mentions=cdcr_dataset.mentions
+    mentions_by_sentence=cdcr_dataset.mentions_by_sentence
+    mentions_by_type = cdcr_dataset.mentions_by_type[mention_type]
+    #Type and topic require filtering
+
     dict_positive_pairs_by_topic = defaultdict(dict)
     dict_negative_pairs_by_topic = defaultdict(dict)
 
@@ -91,7 +98,6 @@ def create_pairs(dict_sentences_pairs_similarity,mentions,mentions_by_sentence, 
 
             
         ## Subsampling
-                    
         positive_pairs_scores= list(dict_positive_pairs_by_topic[topic].values())
 
         #Downsample negative pairs based on positive pairs score's Q3
@@ -100,18 +106,37 @@ def create_pairs(dict_sentences_pairs_similarity,mentions,mentions_by_sentence, 
         
         #Downsample positive pairs based on topic's median
         dict_positive_pairs_by_topic[topic] = {key: value for key, value in dict_positive_pairs_by_topic[topic].items() if value < topic_sentence_similarity_median}
+
+        #Second subsampling based on mention's number (6sqrt(n))
+        if additional_sampling:
+            mentions_by_topic = [mention for mention in mentions_by_type if mention.topic_id==topic]
+            positive_limit =  int(6*len(mentions_by_topic)**(1/2))
+            negative_limit = positive_limit*20
+
+            dict_positives_current_topic = dict_positive_pairs_by_topic[topic]
+            dict_negatives_current_topic = dict_negative_pairs_by_topic[topic]
+
+            if len(dict_positives_current_topic)>positive_limit:
+                sampled_keys = random.sample(dict_positives_current_topic.keys(), positive_limit)
+                dict_positive_pairs_by_topic[topic] = {key: dict_positives_current_topic[key] for key in sampled_keys}
+
+            if len(dict_negatives_current_topic)>negative_limit:
+                sampled_keys = random.sample(dict_negatives_current_topic.keys(), negative_limit)
+                dict_negative_pairs_by_topic[topic] = {key: dict_negatives_current_topic[key] for key in sampled_keys}
+
+
         #Return unnested dictionaries, no longer by topic
     return unnest_dictionary(dict_positive_pairs_by_topic), unnest_dictionary(dict_negative_pairs_by_topic)
 
-
-def return_pairs_and_labels (cdcr_dataset, mention_type):
+def return_pairs_and_labels(cdcr_dataset, mention_type, additional_sampling):
     #TODO lift restriction on ECB topic 34 once the dataset is updated
     sentences_by_topic = cdcr_dataset.sentences_by_topic
     sentences_by_topic.pop('ECBplus-34',None)
     sentences_pairs_similarity_dict = return_sentence_pair_similarity_by_topic(sentences_by_topic,cdcr_dataset.mentions_by_sentence) #Dict sentence by 
     # Remove ECB topic 34
     positive_pairs,negative_pairs = create_pairs(dict_sentences_pairs_similarity=sentences_pairs_similarity_dict,
-                                    mentions=cdcr_dataset.mentions,mentions_by_sentence=cdcr_dataset.mentions_by_sentence, mention_type=mention_type)
+                                                 cdcr_dataset = cdcr_dataset, mention_type=mention_type,
+                                                 additional_sampling = additional_sampling)
 
     positive_labels, negative_labels= [1]*len(positive_pairs), [0]*len(negative_pairs)
     #Extract keys from pairs, not the similarity score

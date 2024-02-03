@@ -228,7 +228,9 @@ class CDCR_Dataset:
 
 
 class CL_Dataset(Dataset):
-    def __init__(self,name,data_paths,context_method,mention_type,tokenizer, special_mention_tokens,mode="train",export_samples="False"): #Initialized tokenizer
+    def __init__(self,name,data_paths,context_method,mention_type,tokenizer, 
+                 special_mention_tokens,mode="train",export_samples=False,
+                 additional_sampling=False): #Initialized tokenizer
         #I will tokenize all the sequences up-front
 
         self.cdcr_dataset = CDCR_Dataset(name=name, data_path=data_paths,context_method=context_method,special_mention_tokens=special_mention_tokens)
@@ -243,7 +245,7 @@ class CL_Dataset(Dataset):
         if mode=="train":
             start_time = time.time()
             self.all_pairs, self.all_labels, all_scores = return_pairs_and_labels(cdcr_dataset=self.cdcr_dataset,
-                                                                        mention_type=self.mention_type)            
+                                                                        mention_type=self.mention_type,additional_sampling=additional_sampling)            
             end_time = time.time()
             elapsed_time = end_time - start_time
             print(f"Time elapsed for sampling: {elapsed_time} seconds")

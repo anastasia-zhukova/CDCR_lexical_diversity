@@ -42,7 +42,8 @@ def train(gpu_id,args):
     export_samples = args.export_samples
 
     cl_cdcr_train = CL_Dataset(name=args.train_dataset_name,data_paths=args.train_conll_paths,context_method=context_method,
-                        mention_type=mention_type,tokenizer=tokenizer, special_mention_tokens=end_start_special_tokens,mode="train",export_samples=export_samples) 
+                        mention_type=mention_type,tokenizer=tokenizer, special_mention_tokens=end_start_special_tokens,mode="train",
+                        export_samples=export_samples, additional_sampling=args.additional_sampling) 
 
     cl_cdcr_val = CL_Dataset(name=args.val_dataset_name,data_paths=args.val_conll_paths,context_method=context_method,
                     mention_type=mention_type,tokenizer=tokenizer, special_mention_tokens=end_start_special_tokens,mode="inference") 
@@ -138,6 +139,7 @@ if __name__ == '__main__':
     parser.add_argument('--learning_rate', type=float, default=2e-7, help='Learning rate')
     parser.add_argument('--margin', type=float, default=0.4, help='margin')
     parser.add_argument('--export_samples', action='store_true', default=False, help='Export samples or not')
+    parser.add_argument('--additional_sampling', action='store_true', default=False, help='Additional sampling or not')
     #Job ID to check logs
     parser.add_argument('--job_id', type=str, default= '')
     # Number of GPUs available

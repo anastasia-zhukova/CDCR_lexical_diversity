@@ -74,7 +74,7 @@ def create_pairs(dict_sentences_pairs_similarity,cdcr_dataset, mention_type, add
             continue
         
         topic_sentence_similarity_median = statistics.median(list(sentence_pairs.values()))
-
+        mention_keys_current_topic = []
         for (sentence_key1, sentence_key2), score in sentence_pairs.items():
             mentions_sentence1 = mentions_by_sentence[sentence_key1]
             mentions_sentence2 = mentions_by_sentence[sentence_key2]
@@ -87,7 +87,7 @@ def create_pairs(dict_sentences_pairs_similarity,cdcr_dataset, mention_type, add
 
                 if mention1.type!=mention_type or mention2.type!=mention_type: # No cross-type comparison
                     continue
-
+                mention_keys_current_topic.append(mention_key1)
                 same_coref_chain = mention1.coref_chain == mention2.coref_chain
                 new_dict_entry = {(mention_key1,mention_key2):score}
 
@@ -109,18 +109,20 @@ def create_pairs(dict_sentences_pairs_similarity,cdcr_dataset, mention_type, add
 
         #Second subsampling based on mention's number (6sqrt(n))
         if additional_sampling:
-            mentions_by_topic = [mention for mention in mentions_by_type if mention.topic_id==topic]
-            positive_limit =  int(6*len(mentions_by_topic)**(1/2))
+            mention_keys_current_topic = list(set(mention_keys_current_topic))
+            positive_limit =  int(6*len(mention_keys_current_topic)**(1/2))
             negative_limit = positive_limit*20
 
             dict_positives_current_topic = dict_positive_pairs_by_topic[topic]
             dict_negatives_current_topic = dict_negative_pairs_by_topic[topic]
 
             if len(dict_positives_current_topic)>positive_limit:
+                print(f"topic {topic} current positives {len(dict_positives_current_topic)} positive limit {positive_limit} ")
                 sampled_keys = random.sample(dict_positives_current_topic.keys(), positive_limit)
                 dict_positive_pairs_by_topic[topic] = {key: dict_positives_current_topic[key] for key in sampled_keys}
 
             if len(dict_negatives_current_topic)>negative_limit:
+                print(f"topic {topic} current negatives {len(dict_negatives_current_topic)} negative limit {negative_limit} ")
                 sampled_keys = random.sample(dict_negatives_current_topic.keys(), negative_limit)
                 dict_negative_pairs_by_topic[topic] = {key: dict_negatives_current_topic[key] for key in sampled_keys}
 

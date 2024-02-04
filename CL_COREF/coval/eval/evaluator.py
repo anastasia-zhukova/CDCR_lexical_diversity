@@ -211,7 +211,7 @@ def lea(input_clusters, output_clusters, mention_to_gold):
                         #           [str(s) for s in output_clusters[
                         #               mention_to_gold[m2]]])
 
-        num += len(c) * common_links / float(all_links)
+        num += len(c) * common_links / float(all_links) #This len(c) in the numerator must be the importance factor
         den += len(c)
 
     return num, den

@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=train-cross-encoder-gpu
-#SBATCH -t 21:00:00                  # estimated time # TODO: adapt to your needs
+#SBATCH -t 00:35:00                  # estimated time # TODO: adapt to your needs
 #SBATCH -p grete:shared              # the partition you are training on (i.e., which nodes), for nodes see sinfo -p grete:shared --format=%N,%G
 #SBATCH -G A100:1                   # take 1 GPU, see https://www.hlrn.de/doc/display/PUB/GPU+Usage for more options
 #SBATCH --mem-per-gpu=30G             # setting the right constraints for the splitted gpu partitions
@@ -41,7 +41,17 @@ nvcc -V
 
 # Run the script:
 #TODO Define train setups with fixed val and train paths in the train script and save the setup number in the models path
-python -u train.py --job_id=${SLURM_JOB_ID} --mention_type event --train_batch_size 32 --val_batch_size 128 --num_epochs 100 --export_samples --additional_sampling
+#Common arguments
+MENTION_TYPE=event
+TRAIN_BATCH_SIZE=32
+NUM_EPOCHS=5
+LANGUAGE_MODEL=da-roberta
+
+python -u train.py --job_id=${SLURM_JOB_ID} --mention_type ${MENTION_TYPE} --train_batch_size ${TRAIN_BATCH_SIZE} --val_batch_size 128 --num_epochs ${NUM_EPOCHS} --language_model ${LANGUAGE_MODEL}
+#Prediction after model training
+MODEL_PATH=models/${MENTION_TYPE}/${LANGUAGE_MODEL}/tokens_E/siamese_model_batch_${TRAIN_BATCH_SIZE}_epochs_${NUM_EPOCHS}.pth
+python -u predict.py --model_path ${MODEL_PATH}
+
 
 # Run the script with logger:
 #python -u train_with_logger.py -l ~/${SLURM_JOB_NAME}_${SLURM_JOB_ID}  -t True -p True -d True -s True -f True

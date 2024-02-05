@@ -40,8 +40,18 @@ python --version
 python -m torch.utils.collect_env
 nvcc -V
 
-# Run the script:
-python -u train.py --job_id=${SLURM_JOB_ID} --mention_type entity --train_batch_size 64 --val_batch_size 32 --num_epochs 30 --export_samples --additional_sampling
+#Common arguments
+MENTION_TYPE=entity
+TRAIN_BATCH_SIZE=64
+NUM_EPOCHS=50
+LANGUAGE_MODEL=roberta-large
+
+python -u train.py --job_id=${SLURM_JOB_ID} --mention_type ${MENTION_TYPE} --train_batch_size ${TRAIN_BATCH_SIZE} --val_batch_size 128 --num_epochs ${NUM_EPOCHS} --language_model ${LANGUAGE_MODEL}
+#Prediction after model training
+MODEL_PATH=models/${MENTION_TYPE}/${LANGUAGE_MODEL}/tokens_E/siamese_model_batch_${TRAIN_BATCH_SIZE}_epochs_${NUM_EPOCHS}.pth
+python -u predict.py --model_path ${MODEL_PATH}
+
+
 
 # Run the script with logger:
 #python -u train_with_logger.py -l ~/${SLURM_JOB_NAME}_${SLURM_JOB_ID}  -t True -p True -d True -s True -f True

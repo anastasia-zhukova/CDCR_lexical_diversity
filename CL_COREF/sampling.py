@@ -111,7 +111,7 @@ def create_pairs(dict_sentences_pairs_similarity,cdcr_dataset, mention_type, add
         if additional_sampling:
             mention_keys_current_topic = list(set(mention_keys_current_topic))
             positive_limit =  int(6*len(mention_keys_current_topic)**(1/2))
-            negative_limit = positive_limit*20
+            negative_limit = positive_limit*15
 
             dict_positives_current_topic = dict_positive_pairs_by_topic[topic]
             dict_negatives_current_topic = dict_negative_pairs_by_topic[topic]

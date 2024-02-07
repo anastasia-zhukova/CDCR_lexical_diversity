@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=train-cross-encoder-gpu
-#SBATCH -t 00:35:00                  # estimated time # TODO: adapt to your needs
+#SBATCH -t 20:00:00                  # estimated time # TODO: adapt to your needs
 #SBATCH -p grete:shared              # the partition you are training on (i.e., which nodes), for nodes see sinfo -p grete:shared --format=%N,%G
 #SBATCH -G A100:1                   # take 1 GPU, see https://www.hlrn.de/doc/display/PUB/GPU+Usage for more options
 #SBATCH --mem-per-gpu=30G             # setting the right constraints for the splitted gpu partitions
@@ -44,7 +44,7 @@ nvcc -V
 #Common arguments
 MENTION_TYPE=event
 TRAIN_BATCH_SIZE=32
-NUM_EPOCHS=5
+NUM_EPOCHS=100
 LANGUAGE_MODEL=da-roberta
 
 python -u train.py --job_id=${SLURM_JOB_ID} --mention_type ${MENTION_TYPE} --train_batch_size ${TRAIN_BATCH_SIZE} --val_batch_size 128 --num_epochs ${NUM_EPOCHS} --language_model ${LANGUAGE_MODEL}

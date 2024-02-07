@@ -19,7 +19,7 @@ def train_test (text,labels,test_size):
                                                                     stratify=labels)
   return train_text, test_text, train_labels, test_labels
 
-tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
+tokenizer = RobertaTokenizer.from_pretrained('roberta-large')
 
 def tokenize(sentences,labels,max_length = None):
   "tokenizes input and returns tokenized input + labels as tensors"
@@ -62,7 +62,7 @@ torch.cuda.manual_seed_all(0)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
-#read WNC corpus 
+#read Corpus
 df_bias = pd.read_excel('dapt_bias_dataset.xlsx')
 df_bias.dropna(inplace=True)
 
@@ -88,7 +88,7 @@ cross_entropy = nn.CrossEntropyLoss()
 class RobertaClass(torch.nn.Module):
     def __init__(self):
         super(RobertaClass, self).__init__()
-        self.roberta = RobertaModel.from_pretrained("roberta-base")
+        self.roberta = RobertaModel.from_pretrained("roberta-large")
         self.vocab_transform = torch.nn.Linear(768, 768)
         self.dropout = torch.nn.Dropout(0.2)
         self.classifier1 = nn.Linear(768, 2)
@@ -189,7 +189,7 @@ def train_validate(train_dataloader,test_dataloader):
     #save the best model
     if valid_loss < best_valid_loss:
       best_valid_loss = valid_loss
-      torch.save(model.state_dict(), 'pytorch_model.bin') #insert path here
+      torch.save(model.state_dict(), 'da-roberta.bin') #insert path here
       
     #if validation loss increases, stop training
     elif valid_loss >= best_valid_loss:

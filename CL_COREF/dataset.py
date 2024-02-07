@@ -1,14 +1,10 @@
 from collections import namedtuple, defaultdict
 import json
-import numpy as np
 import os
 import pandas as pd
 import time
 from torch.utils.data import Dataset, Subset
 from typing import Dict, Any
-
-
-from sampling import return_pairs_and_labels
 
 class Mention:
 
@@ -228,11 +224,12 @@ class CDCR_Dataset:
 
 
 class CL_Dataset(Dataset):
+
     def __init__(self,name,data_paths,context_method,mention_type,tokenizer, 
                  special_mention_tokens,mode="train",export_samples=False,
                  additional_sampling=False): #Initialized tokenizer
         #I will tokenize all the sequences up-front
-
+        from sampling import return_pairs_and_labels
         self.cdcr_dataset = CDCR_Dataset(name=name, data_path=data_paths,context_method=context_method,special_mention_tokens=special_mention_tokens)
 
         #Tokenize mentions

@@ -1,9 +1,0 @@
-# Twitter
-API_KEY=''
-API_KEY_SECRET=''
-BEARER_TOKEN=''
-TOKEN=''
-TOKEN_SECRET=''
-
-# wandb
-WANDB_API_KEY=''

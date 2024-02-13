@@ -74,7 +74,7 @@ train_data_wiki = TensorDataset(train_input_ids, train_attention_masks, train_y)
 test_data_wiki = TensorDataset(test_input_ids, test_attention_masks, test_y)
 
 epochs = 1
-batch_size = 32
+batch_size = 16
 
 train_sampler = RandomSampler(train_data_wiki)
 test_sampler = RandomSampler(test_data_wiki)
@@ -89,7 +89,7 @@ class RobertaClass(torch.nn.Module):
     def __init__(self):
         super(RobertaClass, self).__init__()
         self.roberta = RobertaModel.from_pretrained("roberta-large")
-        self.vocab_transform = torch.nn.Linear(768, 768)
+        self.vocab_transform = torch.nn.Linear(self.roberta.config.hidden_size, 768)
         self.dropout = torch.nn.Dropout(0.2)
         self.classifier1 = nn.Linear(768, 2)
 
@@ -202,7 +202,7 @@ def train_validate(train_dataloader,test_dataloader):
     
     print(f'\nTraining Loss: {train_loss:.3f}')
     print(f'Validation Loss: {valid_loss:.3f}')
-
+    torch.cuda.empty_cache()
 
 #apply training and validation
 train_validate(train_dataloader,test_dataloader)

@@ -102,40 +102,55 @@ def create_tokenizer(language_model_name,special_tokens):
     if language_model_name=="da-roberta":
         tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
         print("da-roberta tokenizer loaded")
+    elif language_model_name=="da-roberta-large":
+        tokenizer = RobertaTokenizer.from_pretrained('roberta-large')
+        print("da-roberta large tokenizer loaded")
     else:
-        tokenizer = RobertaTokenizer.from_pretrained(language_model_name)
+        tokenizer = RobertaTokenizer.from_pretrained(pretrained_model_name_or_path=language_model_name)
+        print(f"{language_model_name} tokenizer loaded")
     tokenizer.add_tokens(special_tokens)
     return tokenizer
 
 
 class RobertaClass(torch.nn.Module):
-    def __init__(self):
+    def __init__(self,language_model_name):
         super(RobertaClass, self).__init__()
-        self.roberta = RobertaModel.from_pretrained("roberta-base")
-        self.vocab_transform = torch.nn.Linear(768, 768)
+        self.roberta = RobertaModel.from_pretrained(language_model_name)
+        self.vocab_transform = torch.nn.Linear(self.roberta.config.hidden_size, 768)
         self.dropout = torch.nn.Dropout(0.2)
         self.classifier1 = torch.nn.Linear(768,2)
 
-    def forward(self, input_ids, attention_mask):
-        output_1 = self.roberta(input_ids=input_ids, attention_mask=attention_mask)
-        hidden_state = output_1[0]
-        pooler = hidden_state[:, 0]
+    def forward(self, input_ids, attention_mask, labels):
+        output_1 = self.roberta(input_ids, attention_mask)['last_hidden_state']
+        pooler = output_1[:, 0, :]
         pooler = self.vocab_transform(pooler)
         pooler = self.dropout(pooler)
         output = self.classifier1(pooler)
+        loss = cross_entropy(output, labels)
 
-        return output
+        return loss
     
 
 def create_siamese_model(language_model_name,tokenizer_instance):
     if language_model_name=="da-roberta":
         weight_dict = torch.load('DAPT_models/DA-Roberta.bin')
-        model = RobertaClass()
+        model = RobertaClass("roberta-base")
         model.load_state_dict(weight_dict)
         language_model_instance = model.roberta
         print("loaded da-roberta model")
+    elif language_model_name=="da-roberta-large":
+        weight_dict = torch.load('DAPT_models/da-roberta-large.bin')
+        model = RobertaClass("roberta-large")
+        model.load_state_dict(weight_dict)
+        language_model_instance = model.roberta
+        print("loaded da-roberta-large model")
     else:
         language_model_instance = RobertaModel.from_pretrained(pretrained_model_name_or_path= language_model_name) 
+        #Fix 1 for the lack of training of the masked model
+        # language_model_instance = language_model_instance.roberta # didn't work. RoBERTa is initiaized and not RoBERta for MLM
+        #Fix 2. Set the model in train mode:
+        language_model_instance.train()
+        print(f"{language_model_name} model loaded")
 
     siamese_model = SiameseNetwork(model=language_model_instance,tokenizer=tokenizer_instance)
     return siamese_model

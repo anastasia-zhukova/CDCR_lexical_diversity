@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -A nimcdcr2
 #SBATCH --job-name=train-cross-encoder-gpu
-#SBATCH -t 26:00:00                  # estimated time # TODO: adapt to your needs
+#SBATCH -t 24:00:00                  # estimated time # TODO: adapt to your needs
 #SBATCH -p grete:shared              # the partition you are training on (i.e., which nodes), for nodes see sinfo -p grete:shared --format=%N,%G
 #SBATCH -G A100:1                   # take 1 GPU, see https://www.hlrn.de/doc/display/PUB/GPU+Usage for more options
 #SBATCH --mem-per-gpu=30G             # setting the right constraints for the splitted gpu partitions
@@ -43,10 +43,10 @@ nvcc -V
 #Common arguments
 MENTION_TYPE=entity
 TRAIN_BATCH_SIZE=64
-NUM_EPOCHS=70
-LANGUAGE_MODEL=da-roberta
+NUM_EPOCHS=50
+LANGUAGE_MODEL=roberta-allen-dapt5000
 
-python -u train.py --job_id=${SLURM_JOB_ID} --mention_type ${MENTION_TYPE} --train_batch_size ${TRAIN_BATCH_SIZE} --val_batch_size 128 --num_epochs ${NUM_EPOCHS} --language_model ${LANGUAGE_MODEL}
+python -u train.py --job_id=${SLURM_JOB_ID} --mention_type ${MENTION_TYPE} --train_batch_size ${TRAIN_BATCH_SIZE} --val_batch_size 128 --num_epochs ${NUM_EPOCHS} --language_model ${LANGUAGE_MODEL} --additional_sampling
 #Prediction after model training
 MODEL_PATH=models/${MENTION_TYPE}/${LANGUAGE_MODEL}/tokens_E/siamese_model_batch_${TRAIN_BATCH_SIZE}_epochs_${NUM_EPOCHS}.pth
 python -u predict.py --model_path ${MODEL_PATH}

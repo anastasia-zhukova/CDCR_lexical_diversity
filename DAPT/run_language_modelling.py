@@ -321,12 +321,14 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
     )
     set_seed(args)  # Added here for reproducibility
     for epoch in train_iterator:
+        print(f"epoch {epoch} from  iterator len {len(train_iterator)}")
         epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
 
         if args.local_rank != -1:
             train_sampler.set_epoch(epoch)
 
         for step, batch in enumerate(epoch_iterator):
+            #print(f"step {step} out of {len(epoch_iterator)}") #Unnecessary print, same as the one in the error log of tensorx
 
             # Skip past any already trained steps if resuming training
             if steps_trained_in_current_epoch > 0:
@@ -337,7 +339,8 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
             inputs = inputs.to(args.device)
             labels = labels.to(args.device)
             model.train()
-            outputs = model(inputs, masked_lm_labels=labels) if args.mlm else model(inputs, labels=labels)
+            # outputs = model(inputs, masked_lm_labels=labels) if args.mlm else model(inputs, labels=labels) # masked_lm_labels seems to be deprecated
+            outputs = model(inputs, labels=labels)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)
 
             if args.n_gpu > 1:
@@ -361,6 +364,9 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
                 scheduler.step()  # Update learning rate schedule
                 model.zero_grad()
                 global_step += 1
+
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
                 if args.local_rank in [-1, 0] and args.logging_steps > 0 and global_step % args.logging_steps == 0:
                     # Log metrics
@@ -716,6 +722,7 @@ def main():
             config=config,
             cache_dir=args.cache_dir,
         )
+        logger.info(f"Model created according to {model}. Type is {type(model)}")
     else:
         logger.info("Training new model from scratch")
         model = AutoModelWithLMHead.from_config(config)

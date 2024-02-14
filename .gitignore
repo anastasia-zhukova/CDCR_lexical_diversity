@@ -17,6 +17,13 @@ __pycache__/
 /MTL/PGKPR/slurm_files
 /MTL/PGKPR_adapted/slurm_files
 /MTL/cross_encoder_adapted/models/pairwise_scorers/
+/CL_COREF/slurm_files
+/DAPT/roberta-allen-dapt
+/DAPT/roberta-allen-dapt12500
+/DAPT/roberta-allen-dapt5000
+/DAPT/slurm_files
+/CL_COREF/predictions
+/CL_COREF/models
 #CSV and JSON from PGKPR
 MTL/PGKPR/**/*.csv
 MTL/PGKPR/**/*.json

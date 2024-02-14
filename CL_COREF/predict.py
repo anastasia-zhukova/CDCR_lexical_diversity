@@ -56,7 +56,13 @@ if __name__ == '__main__':
         dataloader = create_data_loader(cl_cdcr=cl_cdcr_dataset,batch_size=test_batch_size)
         df_metrics, df_prediction = predict_and_evaluate(dataloader=dataloader,device=device,model=model,cl_cdcr_dataset=cl_cdcr_dataset,metrics="all")
         print(f"{dataset_name} results",df_metrics)
+        print("--------------------")
+        print(f"{dataset_name} test results: CoNLL F1 {round(df_metrics.loc['conll','F1'],2)} LEA F1: {round(df_metrics.loc['lea','F1'],2)}")
+
         file_path = os.path.join(predictions_path, f"{dataset_name}_{mention_type}.csv")
         df_prediction.to_csv(file_path)
         print(f"{dataset_name} predictions exported to {file_path}")
+        
+    print("---------------")
+    print(f"Language model: {language_model_name}")
 

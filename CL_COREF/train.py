@@ -90,7 +90,7 @@ def train(gpu_id,args):
             torch.cuda.empty_cache()
             accumulated_loss += loss.item()
 
-        print(f'epoch {epoch+1}/{num_epochs}, Train accumulated loss: {accumulated_loss}')
+        print(f'epoch {epoch+1}/{num_epochs}, Train accumulated loss: {round(accumulated_loss,2)}')
 
         # #Validation
         # val_model = None
@@ -112,7 +112,7 @@ def train(gpu_id,args):
         df_metrics, _ = predict_and_evaluate(dataloader=val_dataloader,device=device,model=model,cl_cdcr_dataset=cl_cdcr_val,metrics="all")
         #Print epoch results
         val_conll_f1 = df_metrics.loc["conll","F1"]
-        print(f'epoch {epoch+1}/{num_epochs}, eval conll: {val_conll_f1}')
+        print(f'epoch {epoch+1}/{num_epochs}, eval conll: {round(val_conll_f1,2)}')
 
         # Store the best model
         if val_conll_f1>best_conll_f1:
@@ -120,6 +120,12 @@ def train(gpu_id,args):
             torch.save(model.state_dict(), os.path.join(out_dir, f"siamese_model_batch_{args.train_batch_size}_epochs_{num_epochs}.pth"))
 
             print(f'epoch {epoch+1}/{num_epochs}, model saved')
+
+    print("best dev result:", round(best_conll_f1,2))
+    if args.additional_sampling:
+        print("Additional sampling activated")
+    else:
+        print("No additional sampling activated")
 
 
 if __name__ == '__main__':

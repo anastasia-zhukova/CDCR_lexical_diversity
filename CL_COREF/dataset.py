@@ -1,7 +1,9 @@
 from collections import namedtuple, defaultdict
+import csv
 import json
 import os
 import pandas as pd
+import sys
 import time
 from torch.utils.data import Dataset, Subset
 from typing import Dict, Any
@@ -277,8 +279,24 @@ class CL_Dataset(Dataset):
         mention_keys = [key for key in self.cdcr_dataset.mentions_by_type[self.mention_type] if key in self.cdcr_dataset.mentions]
         context_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[0]) for key in mention_keys]
         mention_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[1]) for key in mention_keys]
-        #TODO turn the 120 into parameter
-        encoded_text = self.tokenizer(text=context_texts,text_pair=mention_texts,padding="max_length",max_length=120,truncation="only_first")
+        
+        try:
+            encoded_text = self.tokenizer(text=context_texts,text_pair=mention_texts,padding="max_length",max_length=120,truncation="only_first")
+        except Exception as e:
+            print(f"Tokenization of {self.cdcr_dataset.name} failed with the following error: {e}")
+            with open(f"context_texts_{self.cdcr_dataset.name}", mode='w', newline='') as file:
+                # Create a CSV writer object
+                csv_writer = csv.writer(file)
+                # Write the list of strings to the CSV file
+                csv_writer.writerow(context_texts)
+            with open(f"mention_texts_{self.cdcr_dataset.name}", mode='w', newline='') as file:
+                # Create a CSV writer object
+                csv_writer = csv.writer(file)
+                # Write the list of strings to the CSV file
+                csv_writer.writerow(mention_texts)
+            
+            print("csv debug files writen in main folder")
+            sys.exit("Exiting due to tokenization error.")
 
         # Create a dictionary to store the mappings
         tokenized_dict = {}

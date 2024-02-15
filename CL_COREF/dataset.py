@@ -1,6 +1,7 @@
 from collections import namedtuple, defaultdict
 import csv
 import json
+import nltk
 from nltk.corpus import stopwords
 import os
 import pandas as pd
@@ -9,6 +10,8 @@ import sys
 import time
 from torch.utils.data import Dataset, Subset
 from typing import Dict, Any
+
+nltk.download('stopwords')
 
 class Mention:
 

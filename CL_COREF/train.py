@@ -127,6 +127,7 @@ def train(gpu_id,args):
     else:
         print("No additional sampling activated")
 
+    print(f"Model saved on {os.path.join(out_dir, f"siamese_model_batch_{args.train_batch_size}_epochs_{num_epochs}.pth")}")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

@@ -1,8 +1,10 @@
 from collections import namedtuple, defaultdict
 import csv
 import json
+from nltk.corpus import stopwords
 import os
 import pandas as pd
+import string       
 import sys
 import time
 from torch.utils.data import Dataset, Subset
@@ -30,6 +32,17 @@ class Mention:
             setattr(self, attribute, mention_data.get(attribute))
             
         self.conll_sent_key = f'{self.conll_doc_key}/{self.sent_id}'
+        mention_wo_stopwords = [token for token in self.tokens_text if token == self.mention_head or (token not in string.punctuation and token not in stopwords.words("english"))]        
+        if not len(mention_wo_stopwords):
+            print(f"mention {self.mention_id} ignored for phrasing diversity. Head '{self.mention_head}' not in list of tokens {self.tokens_text}")
+            self.mention_wo_stopwords = None
+            self.mention_wordset = None
+
+        else:
+            mention_wordset = frozenset(mention_wo_stopwords)
+            self.mention_wo_stopwords = mention_wo_stopwords
+            self.mention_wordset = mention_wordset
+
 
     def validate_token_str(self, tokens_from_sentence:list) ->list:
         differences = []
@@ -53,13 +66,15 @@ class Mention:
         mention_context.insert(lower_limit,special_mention_tokens[0])
 
         #Document context
-        possible_sentences = [0,1,2]
+        possible_sentences = [0,1,2,3,4] #Increased to 4 to minimize padding and replace it with tokens from the next sentence
         if self.sent_id in possible_sentences:
             possible_sentences.pop(self.sent_id)
         else:
             possible_sentences.pop()
-        document_context = [value for _, value in sorted(doc_sentences_dict[possible_sentences[0]].items())] + [value for _, value in sorted(doc_sentences_dict[possible_sentences[1]].items())]
-        self.new_context= (document_context,mention_context)
+        document_context1 = [value for _, value in sorted(doc_sentences_dict[possible_sentences[0]].items())] + [value for _, value in sorted(doc_sentences_dict[possible_sentences[1]].items())]
+        document_context2 = [value for _, value in sorted(doc_sentences_dict[possible_sentences[2]].items())] + [value for _, value in sorted(doc_sentences_dict[possible_sentences[3]].items())]
+        full_context = document_context1 + document_context2
+        self.new_context= (full_context,mention_context)
         
     def return_gold_topic_representation(self)->dict:
         return {
@@ -301,21 +316,31 @@ class CL_Dataset(Dataset):
         # Create a dictionary to store the mappings
         tokenized_dict = {}
 
-        # Iterate over keys and link values
-        for key in mention_keys:
+        
+        for key in mention_keys: #Iterate over the encoded text based on the position of the key in the list
             # Access corresponding values in encoded_text
             input_ids = encoded_text["input_ids"][mention_keys.index(key)]
             attention_mask = encoded_text["attention_mask"][mention_keys.index(key)]
+            
+            input_ids_length = len(input_ids)
+            if input_ids_length>120: #When first_only is activated and the first sentence is longer than max_value, the tokenizer returns the encoding without truncation
+                
+                i = -1
 
-            if len(input_ids)>120:
-                print(f"mention {key} ignored due to truncation of mention tokens")
-                continue
+                while input_ids_length>120:
+                    temp_mention = " ".join(self.cdcr_dataset.mentions[key].new_context[1][:i])
+                    temp_context = " ".join(self.cdcr_dataset.mentions[key].new_context[0])
+                    temp_encoding = self.tokenizer(text=temp_context,text_pair=temp_mention,padding="max_length",max_length=120,truncation="only_first")
+
+                    input_ids = temp_encoding["input_ids"]
+                    attention_mask = temp_encoding["attention_mask"]
+                    input_ids_length = len(input_ids)
+                    i = i-1
 
             #Validate that the special token [E] and [/E] were not removed due to truncation
             if input_ids.count(mention_start[0])!=1 or input_ids.count(mention_end[0])!=1:
                 raise Exception(f"The truncation process removed either the [E] or the [/E] token. [E] occurs {input_ids.count(mention_start[0])} and [/E] occurs {input_ids.count(mention_end[0])} times in mention {key}")
                 
-            
             # Create a dictionary entry with the key and corresponding tensors
             tokenized_dict[key] = {
                 "input_ids": input_ids,

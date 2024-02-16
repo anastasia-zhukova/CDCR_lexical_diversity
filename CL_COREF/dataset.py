@@ -26,7 +26,7 @@ class Mention:
             'coref_chain', 'mention_ner', 'mention_head_pos', 'mention_head_lemma',
             'mention_head', 'mention_head_id', 'doc_id', 'doc', 'is_continuous',
             'is_singleton', 'mention_id', 'mention_type', 'mention_full_type',
-            'score', 'sent_id', 'old_context', 'tokens_number_context', 'tokens_number',
+            'score', 'sent_id', 'mention_context', 'tokens_number_context', 'tokens_number',
             'tokens_str', 'tokens_text', 'topic_id', 'topic', 'subtopic_id', 'subtopic',
             'coref_type', 'description', 'conll_doc_key'
         ]
@@ -69,14 +69,17 @@ class Mention:
         mention_context.insert(lower_limit,special_mention_tokens[0])
 
         #Document context
-        possible_sentences = [0,1,2,3,4] #Increased to 4 to minimize padding and replace it with tokens from the next sentence
+        possible_sentences = [0,1,2,3,4,5,6,7,8] #Increased to 4 to minimize padding and replace it with tokens from the next sentence
         if self.sent_id in possible_sentences:
             possible_sentences.pop(self.sent_id)
         else:
             possible_sentences.pop()
+
         document_context1 = [value for _, value in sorted(doc_sentences_dict[possible_sentences[0]].items())] + [value for _, value in sorted(doc_sentences_dict[possible_sentences[1]].items())]
         document_context2 = [value for _, value in sorted(doc_sentences_dict[possible_sentences[2]].items())] + [value for _, value in sorted(doc_sentences_dict[possible_sentences[3]].items())]
-        full_context = document_context1 + document_context2
+        document_context3 = [value for _, value in sorted(doc_sentences_dict[possible_sentences[4]].items())] + [value for _, value in sorted(doc_sentences_dict[possible_sentences[5]].items())]
+        document_context4 = [value for _, value in sorted(doc_sentences_dict[possible_sentences[6]].items())] + [value for _, value in sorted(doc_sentences_dict[possible_sentences[7]].items())]
+        full_context = document_context1 + document_context2 + document_context3 + document_context4
         self.new_context= (full_context,mention_context)
         
     def return_gold_topic_representation(self)->dict:
@@ -297,7 +300,9 @@ class CL_Dataset(Dataset):
         mention_keys = [key for key in self.cdcr_dataset.mentions_by_type[self.mention_type] if key in self.cdcr_dataset.mentions]
         context_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[0]) for key in mention_keys]
         mention_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[1]) for key in mention_keys]
-        
+        #Remove linebreaks
+        context_texts = [s.replace("\n", "") for s in context_texts]
+        mention_texts = [s.replace("\n", "") for s in mention_texts]
         try:
             encoded_text = self.tokenizer(text=context_texts,text_pair=mention_texts,padding="max_length",max_length=120,truncation="only_first")
         except Exception as e:
@@ -331,8 +336,8 @@ class CL_Dataset(Dataset):
                 i = -1
 
                 while input_ids_length>120:
-                    temp_mention = " ".join(self.cdcr_dataset.mentions[key].new_context[1][:i])
-                    temp_context = " ".join(self.cdcr_dataset.mentions[key].new_context[0])
+                    temp_mention = " ".join(self.cdcr_dataset.mentions[key].new_context[1][:i]).replace("\n", "")
+                    temp_context = " ".join(self.cdcr_dataset.mentions[key].new_context[0]).replace("\n", "")
                     temp_encoding = self.tokenizer(text=temp_context,text_pair=temp_mention,padding="max_length",max_length=120,truncation="only_first")
 
                     input_ids = temp_encoding["input_ids"]

@@ -32,7 +32,7 @@ def train(gpu_id,args):
     out_dir = os.path.join(os.getcwd(),"models",args.mention_type,language_model_name,f"tokens_{'_'.join(special_tokens)}")
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
-
+    model_path = os.path.join(out_dir, f"siamese_model_batch_{args.train_batch_size}_epochs_{num_epochs}.pth")
     #Create tokenizer
     tokenizer = create_tokenizer(language_model_name,end_start_special_tokens)
 
@@ -117,7 +117,7 @@ def train(gpu_id,args):
         # Store the best model
         if val_conll_f1>best_conll_f1:
             best_conll_f1=val_conll_f1
-            torch.save(model.state_dict(), os.path.join(out_dir, f"siamese_model_batch_{args.train_batch_size}_epochs_{num_epochs}.pth"))
+            torch.save(model.state_dict(), model_path)
 
             print(f'epoch {epoch+1}/{num_epochs}, model saved')
 
@@ -127,7 +127,7 @@ def train(gpu_id,args):
     else:
         print("No additional sampling activated")
 
-    print(f"Model saved on {os.path.join(out_dir, f"siamese_model_batch_{args.train_batch_size}_epochs_{num_epochs}.pth")}")
+    print(f"Model saved on {model_path}")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

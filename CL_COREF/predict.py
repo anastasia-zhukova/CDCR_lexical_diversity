@@ -23,6 +23,7 @@ if __name__ == '__main__':
     language_model_name = model_path_split[2]
     special_tokens = model_path_split[3].split("_")[1:]
     
+    print(f'extracted language model name from path {language_model_name}')
     end_start_special_tokens = []
     for token in special_tokens:
         end_start_special_tokens.append(f"[{token}]")

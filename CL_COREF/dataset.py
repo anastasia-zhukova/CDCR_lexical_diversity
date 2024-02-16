@@ -9,6 +9,7 @@ import string
 import sys
 import time
 from torch.utils.data import Dataset, Subset
+import traceback
 from typing import Dict, Any
 
 nltk.download('stopwords')
@@ -301,12 +302,15 @@ class CL_Dataset(Dataset):
         context_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[0]) for key in mention_keys]
         mention_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[1]) for key in mention_keys]
         #Remove linebreaks
-        context_texts = [s.replace("\n", "") for s in context_texts]
-        mention_texts = [s.replace("\n", "") for s in mention_texts]
+        context_texts = [s.replace('\\n', '') for s in context_texts]
+        mention_texts = [s.replace('\\n', '') for s in mention_texts]
         try:
             encoded_text = self.tokenizer(text=context_texts,text_pair=mention_texts,padding="max_length",max_length=120,truncation="only_first")
         except Exception as e:
             print(f"Tokenization of {self.cdcr_dataset.name} failed with the following error: {e}")
+            # Print the full traceback
+            traceback.print_exc()
+
             with open(f"context_texts_{self.cdcr_dataset.name}", mode='w', newline='') as file:
                 # Create a CSV writer object
                 csv_writer = csv.writer(file)
@@ -336,8 +340,8 @@ class CL_Dataset(Dataset):
                 i = -1
                 #Remove tokens from mention until pair encoding reaches max_len
                 while input_ids_length>120:
-                    temp_mention = " ".join(self.cdcr_dataset.mentions[key].new_context[1][:i]).replace("\n", "")
-                    temp_context = " ".join(self.cdcr_dataset.mentions[key].new_context[0]).replace("\n", "")
+                    temp_mention = " ".join(self.cdcr_dataset.mentions[key].new_context[1][:i]).replace('\\n', '')
+                    temp_context = " ".join(self.cdcr_dataset.mentions[key].new_context[0]).replace('\\n', '')
                     temp_encoding = self.tokenizer(text=temp_context,text_pair=temp_mention,padding="max_length",max_length=120,truncation="only_first")
 
                     input_ids = temp_encoding["input_ids"]

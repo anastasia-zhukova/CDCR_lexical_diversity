@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=train-cross-encoder-gpu
-#SBATCH -t 25:00:00                  # estimated time # TODO: adapt to your needs
+#SBATCH -t 01:00:00                  # estimated time # TODO: adapt to your needs
 #SBATCH -p grete:shared              # the partition you are training on (i.e., which nodes), for nodes see sinfo -p grete:shared --format=%N,%G
 #SBATCH -G A100:1                   # take 1 GPU, see https://www.hlrn.de/doc/display/PUB/GPU+Usage for more options
 #SBATCH --mem-per-gpu=30G             # setting the right constraints for the splitted gpu partitions
@@ -44,10 +44,13 @@ nvcc -V
 #Common arguments
 MENTION_TYPE=event
 TRAIN_BATCH_SIZE=32
-NUM_EPOCHS=100
+NUM_EPOCHS=2
 # LANGUAGE_MODEL=da-roberta-large
-LANGUAGE_MODEL=roberta-allen-dapt5000
-#allenNLP model:roberta-allen-dapt5000
+# LANGUAGE_MODEL=roberta-allen-dapt5000
+# LANGUAGE_MODEL=roberta-large
+# LANGUAGE_MODEL=YituTech/conv-bert-base
+LANGUAGE_MODEL=deberta-v3-large
+
 
 python -u train.py --job_id=${SLURM_JOB_ID} --mention_type ${MENTION_TYPE} --train_batch_size ${TRAIN_BATCH_SIZE} --val_batch_size 128 --num_epochs ${NUM_EPOCHS} --language_model "${LANGUAGE_MODEL}"
 #Prediction after model training
@@ -61,17 +64,3 @@ python -u predict.py --model_path ${MODEL_PATH}
 # Obtain job information for estimated start and end times
 job_info=$(scontrol show job $SLURM_JOB_ID)
 
-# Extract and print estimated start and end times
-estimated_start_time=$(echo "$job_info" | grep "StartTime" | cut -d'=' -f2)
-estimated_end_time=$(echo "$job_info" | grep "EndTime" | cut -d'=' -f2)
-
-echo "Estimated start time: $estimated_start_time"
-echo "Estimated end time: $estimated_end_time"
-
-# Calculate and print the time difference
-start_timestamp=$(date -d "$estimated_start_time" +"%s")
-end_timestamp=$(date -d "$estimated_end_time" +"%s")
-
-time_difference=$((end_timestamp - start_timestamp))
-
-echo "Estimated running time: $((time_difference / 60)) minutes"

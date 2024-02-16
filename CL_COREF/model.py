@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from transformers import RobertaTokenizer, RobertaModel
+from transformers import RobertaTokenizer, RobertaModel, AutoTokenizer, AutoModel
 
 class SiameseNetwork(nn.Module):    
 
@@ -105,8 +104,11 @@ def create_tokenizer(language_model_name,special_tokens):
     elif language_model_name=="da-roberta-large":
         tokenizer = RobertaTokenizer.from_pretrained('roberta-large')
         print("da-roberta large tokenizer loaded")
+    elif language_model_name == 'deberta-v3-large':
+        tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path='microsoft/deberta-v3-large',use_fast=False)
     else:
-        tokenizer = RobertaTokenizer.from_pretrained(pretrained_model_name_or_path=language_model_name)
+        #tokenizer = RobertaTokenizer.from_pretrained(pretrained_model_name_or_path=language_model_name)
+        tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path=language_model_name,use_fast=False)
         print(f"{language_model_name} tokenizer loaded")
     tokenizer.add_tokens(special_tokens)
     return tokenizer
@@ -126,7 +128,7 @@ class RobertaClass(torch.nn.Module):
         pooler = self.vocab_transform(pooler)
         pooler = self.dropout(pooler)
         output = self.classifier1(pooler)
-        loss = cross_entropy(output, labels)
+        loss = nn.cross_entropy(output, labels)
 
         return loss
     
@@ -144,12 +146,11 @@ def create_siamese_model(language_model_name,tokenizer_instance):
         model.load_state_dict(weight_dict)
         language_model_instance = model.roberta
         print("loaded da-roberta-large model")
+    elif language_model_name == 'deberta-v3-large':
+        language_model_instance = AutoModel.from_pretrained(pretrained_model_name_or_path='microsoft/deberta-v3-large')
+        print(f"{language_model_name} model loaded")
     else:
-        language_model_instance = RobertaModel.from_pretrained(pretrained_model_name_or_path= language_model_name) 
-        #Fix 1 for the lack of training of the masked model
-        # language_model_instance = language_model_instance.roberta # didn't work. RoBERTa is initiaized and not RoBERta for MLM
-        #Fix 2. Set the model in train mode:
-        language_model_instance.train()
+        language_model_instance = AutoModel.from_pretrained(pretrained_model_name_or_path= language_model_name) 
         print(f"{language_model_name} model loaded")
 
     siamese_model = SiameseNetwork(model=language_model_instance,tokenizer=tokenizer_instance)

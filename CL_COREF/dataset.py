@@ -334,7 +334,7 @@ class CL_Dataset(Dataset):
             if input_ids_length>120: #When first_only is activated and the first sentence is longer than max_value, the tokenizer returns the encoding without truncation
                 
                 i = -1
-
+                #Remove tokens from mention until pair encoding reaches max_len
                 while input_ids_length>120:
                     temp_mention = " ".join(self.cdcr_dataset.mentions[key].new_context[1][:i]).replace("\n", "")
                     temp_context = " ".join(self.cdcr_dataset.mentions[key].new_context[0]).replace("\n", "")

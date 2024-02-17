@@ -104,8 +104,8 @@ def create_tokenizer(language_model_name,special_tokens):
     elif language_model_name=="da-roberta-large":
         tokenizer = RobertaTokenizer.from_pretrained('roberta-large')
         print("da-roberta large tokenizer loaded")
-    elif language_model_name == 'deberta-v3-large':
-        tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path='microsoft/deberta-v3-large',use_fast=False)
+    elif language_model_name == 'deberta-large':
+        tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path='microsoft/deberta-large',use_fast=False)
     else:
         #tokenizer = RobertaTokenizer.from_pretrained(pretrained_model_name_or_path=language_model_name)
         tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path=language_model_name,use_fast=False)

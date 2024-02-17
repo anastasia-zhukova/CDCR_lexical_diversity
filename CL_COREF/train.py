@@ -1,5 +1,7 @@
 import argparse
+import numpy as np
 import os
+import random
 from transformers import logging
 import torch
 
@@ -9,6 +11,13 @@ from evaluation import predict_and_evaluate
 from model import CustomContrastiveLoss, create_tokenizer, create_siamese_model, create_optimizer
 
 logging.set_verbosity_error()
+# Set random seed for reproducibility
+seed = 42 
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
+
 #TODO set fixed setups of training and val paths instead of passing the paths by parameter
 #Then, add that setup identifier to the model's path
 #Functions

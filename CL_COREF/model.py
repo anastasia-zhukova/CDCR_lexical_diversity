@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import RobertaTokenizer, RobertaModel, AutoTokenizer, AutoModel
+from transformers import RobertaTokenizer, RobertaModel, AutoTokenizer, AutoModel, T5EncoderModel, T5Tokenizer
 
 class SiameseNetwork(nn.Module):    
 
@@ -42,12 +42,22 @@ class SiameseNetwork(nn.Module):
         e_end_idx = batch_input_ids.eq(self.tokenizer.convert_tokens_to_ids('[/E]')).nonzero(as_tuple=True)
         
 
-        #Check that there special mentions only appear once per sequence
+        #Check that the special mentions only appear once per sequence
         # Validate if there are no repeated values
         mention_tokens_appear_once = len(e_start_idx[0]) == len(torch.unique(e_start_idx[0])) and len(e_end_idx[0]) == len(torch.unique(e_end_idx[0])) 
         mention_tokens_exist = len(e_start_idx[0]) == len(e_end_idx[0]) and len(e_start_idx[0])==batch_input_ids.shape[0]
         
         if not mention_tokens_appear_once or not mention_tokens_exist:
+            print("value of initial special token:", self.tokenizer.convert_tokens_to_ids('[E]'))
+            print("value of end special token:", self.tokenizer.convert_tokens_to_ids('[/E]'))
+            print("batch input ids", batch_input_ids)
+            print("len first dimention of e_start_idx",len(e_start_idx[0]) )
+            print("shape batch input ids:", batch_input_ids.shape)
+            print(f"special start token indices {e_start_idx}")
+            print(f"special end token indices {e_end_idx}")
+            print(f"mention tokens exist and equal to the batch size {mention_tokens_exist}")
+            print(f"mention tokens appear once {mention_tokens_appear_once}")
+
             raise Exception("Mention tokens [E] [/E] are not unique in each sequence from the batch")
         outputs = self.language_model(input_ids=batch_input_ids, attention_mask=batch_attention_mask)
         
@@ -106,11 +116,18 @@ def create_tokenizer(language_model_name,special_tokens):
         print("da-roberta large tokenizer loaded")
     elif language_model_name == 'deberta-large':
         tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path='microsoft/deberta-large',use_fast=False)
+    elif language_model_name == 'deberta-v2-xlarge':
+        tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path='microsoft/deberta-v2-xlarge',use_fast=False)
+    elif language_model_name == 'bart-large':
+        tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path='facebook/bart-large',use_fast=False)
+    elif language_model_name == 'flan-t5-large':
+        tokenizer = T5Tokenizer.from_pretrained(pretrained_model_name_or_path='google/flan-t5-large',use_fast=False)
     else:
         #tokenizer = RobertaTokenizer.from_pretrained(pretrained_model_name_or_path=language_model_name)
         tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path=language_model_name,use_fast=False)
         print(f"{language_model_name} tokenizer loaded")
     tokenizer.add_tokens(special_tokens)
+    print("added special tokens", special_tokens)
     return tokenizer
 
 
@@ -146,8 +163,20 @@ def create_siamese_model(language_model_name,tokenizer_instance):
         model.load_state_dict(weight_dict)
         language_model_instance = model.roberta
         print("loaded da-roberta-large model")
-    elif language_model_name == 'deberta-v3-large':
-        language_model_instance = AutoModel.from_pretrained(pretrained_model_name_or_path='microsoft/deberta-v3-large')
+    elif language_model_name == 'deberta-large':
+        language_model_instance = AutoModel.from_pretrained(pretrained_model_name_or_path='microsoft/deberta-large')
+        print(f"{language_model_name} model loaded")
+    elif language_model_name == 'deberta-v2-xlarge':
+        language_model_instance = AutoModel.from_pretrained(pretrained_model_name_or_path='microsoft/deberta-v2-xlarge')
+        print(f"{language_model_name} model loaded")
+    elif language_model_name == 'bart-large':
+        language_model_instance = AutoModel.from_pretrained(pretrained_model_name_or_path='facebook/bart-large')
+        print(f"{language_model_name} model loaded")
+    elif language_model_name == 'flan-t5-large':
+        language_model_instance = T5EncoderModel.from_pretrained(pretrained_model_name_or_path='google/flan-t5-large')
+        print(f"{language_model_name} model loaded")
+    elif language_model_name == 'conv-bert-base':
+        language_model_instance = AutoModel.from_pretrained(pretrained_model_name_or_path='YituTech/conv-bert-base')
         print(f"{language_model_name} model loaded")
     else:
         language_model_instance = AutoModel.from_pretrained(pretrained_model_name_or_path= language_model_name) 

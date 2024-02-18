@@ -121,7 +121,9 @@ def train(gpu_id,args):
         df_metrics, _ = predict_and_evaluate(dataloader=val_dataloader,device=device,model=model,cl_cdcr_dataset=cl_cdcr_val,metrics="all")
         #Print epoch results
         val_conll_f1 = df_metrics.loc["conll","F1"]
-        print(f'epoch {epoch+1}/{num_epochs}, eval conll: {round(val_conll_f1,2)}')
+        val_lea = df_metrics.loc["lea","F1"]
+        val_pd_lea = df_metrics.loc["pd_lea","F1"]
+        print(f'epoch {epoch+1}/{num_epochs}, eval conll: {round(val_conll_f1,2)},eval lea: {round(val_lea,2)},eval pd_lea: {round(val_pd_lea,2)}')
 
         # Store the best model
         if val_conll_f1>best_conll_f1:

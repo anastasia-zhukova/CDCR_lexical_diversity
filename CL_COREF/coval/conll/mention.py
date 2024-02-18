@@ -2,7 +2,7 @@ import hashlib
 
 
 class Mention:
-    def __init__(self, doc_name, sent_num, start, end, words):
+    def __init__(self, doc_name, sent_num, start, end, words,id):
         self.doc_name = doc_name
         self.sent_num = sent_num
         self.start = start
@@ -11,6 +11,7 @@ class Mention:
         self.gold_parse_is_set = False
         self.gold_parse = None
         self.min_spans = set()
+        self.id = id
         
         
     def __eq__(self, other):

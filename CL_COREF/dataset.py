@@ -88,7 +88,11 @@ class Mention:
             "mention_id": self.mention_id,
             "subtopic_id": self.subtopic_id,
             "coref_chain": self.coref_chain,
-            "mention_type": self.type
+            "mention_type": self.type,
+            "mention_head":self.mention_head,
+            "mention_wo_stopwords": self.mention_wo_stopwords,
+            "mention_wordset":self.mention_wordset
+            
         }
 
     def __repr__(self):

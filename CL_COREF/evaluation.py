@@ -3,13 +3,13 @@ from sklearn.cluster import AgglomerativeClustering
 import torch
 import torch.nn.functional as F
 
-from coval.conll.reader import get_doc_mentions, set_annotated_parse_trees, get_doc_mentions, remove_nested_coref_mentions, get_mention_assignments
+from coval.conll.reader import get_doc_mentions, set_annotated_parse_trees, remove_nested_coref_mentions, get_mention_assignments
 from coval.eval import evaluator
 
 # Params
 allmetrics = [('mentions', evaluator.mentions), ('muc', evaluator.muc),
         ('bcub', evaluator.b_cubed), ('ceafe', evaluator.ceafe),
-        ('lea', evaluator.lea)]
+        ('lea', evaluator.lea),('pd_lea',evaluator.pd_lea)]
 
 def create_embeddings_by_mention(dataloader,device,model,cl_dataset_keys_list):
     dict_embeddings_by_mention= {}
@@ -70,16 +70,19 @@ def create_doc_lines(dataset_name,predictions_df,column_name):
     inner_list = []
     for _,row in predictions_df.iterrows():
 
-        inner_list.append(f"{dataset_name}\t({row[column_name]})" + "\n")
+        inner_list.append(f"{dataset_name}\t{row['mention_id']}\t({row[column_name]})" + "\n")
 
 
     conll_dict[dict_key].append(inner_list)
 
     return conll_dict
 
-def get_coref_infos(dataset_name, predictions_df,key_column_name,prediction_column_name, 
+def get_coref_infos(dataset_name, predictions_df,
                     NP_only=False, remove_nested=False, keep_singletons=True, min_span=False):
     
+    key_column_name='gold_cluster'
+    prediction_column_name='predicted_cluster'
+
     key_doc_lines = create_doc_lines(dataset_name=dataset_name, predictions_df=predictions_df, column_name=key_column_name)
     sys_doc_lines = create_doc_lines(dataset_name=dataset_name, predictions_df=predictions_df, column_name=prediction_column_name)
     doc_coref_infos = {}
@@ -137,13 +140,14 @@ def compute_cdcr_metrics(cdcr_dataset_name,predictions_df,metrics="all",NP_only=
 
     #Compute metrics
     doc_coref_infos = get_coref_infos(dataset_name=cdcr_dataset_name, predictions_df=predictions_df,
-                key_column_name='gold_cluster',prediction_column_name='predicted_cluster', 
                     NP_only=NP_only, remove_nested=remove_nested, keep_singletons=keep_singletons, min_span=min_span)
-    
+    #Here I join the head words info extracting mention index from each mention, and pass it onto evaluator
+
+    dict_phrasing_diversity = dict(zip(predictions_df.mention_id, zip(predictions_df.mention_head,predictions_df.mention_wordset,predictions_df.mention_wo_stopwords)))
 
     evaluation_results = []
     for name, metric in metrics:
-        recall, precision, f1 = evaluator.evaluate_documents(doc_coref_infos,metric,beta=1)
+        recall, precision, f1 = evaluator.evaluate_documents(doc_coref_infos,dict_phrasing_diversity,metric,beta=1)
         
         evaluation_results.append({
             'Metric': name,

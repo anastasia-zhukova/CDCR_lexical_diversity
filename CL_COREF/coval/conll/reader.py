@@ -18,9 +18,10 @@ def get_doc_mentions(doc_name, doc_lines, keep_singletons,
             single_token_coref, open_corefs, end_corefs = (
                     extract_coref_annotation(line))
 
+            mention_id = line.split()[-2]
             if single_token_coref:
-                m = mention.Mention(doc_name, sent_num, word_index, word_index,
-                        [sent_words[word_index]])
+                m = mention.Mention(doc_name, sent_num, word_index,
+                                     word_index,[sent_words[word_index]],mention_id)
                 for c in single_token_coref:
                     if c not in clusters:
                         clusters[c] = []
@@ -47,7 +48,7 @@ def get_doc_mentions(doc_name, doc_lines, keep_singletons,
                     m = mention.Mention(
                             doc_name, sent_num, open_mentions[c][-1][1],
                             word_index,
-                            sent_words[open_mentions[c][-1][1]:word_index + 1])
+                            sent_words[open_mentions[c][-1][1]:word_index + 1],mention_id)
                     clusters[c].append(m)
                     if len(open_mentions[c]) == 1:
                         open_mentions.pop(c)

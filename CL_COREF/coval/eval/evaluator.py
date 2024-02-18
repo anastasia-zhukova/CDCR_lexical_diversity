@@ -52,7 +52,7 @@ class Evaluator:
             self.aggregated_r_num = []
             self.aggregated_r_den = []
 
-    def update(self, coref_info):
+    def update(self, coref_info,dict_phrasing_diversity):
         (key_clusters, sys_clusters, key_mention_sys_cluster,
                 sys_mention_key_cluster) = coref_info
 
@@ -63,6 +63,11 @@ class Evaluator:
                     sys_mention_key_cluster)
             rn, rd = self.metric(key_clusters, sys_clusters,
                     key_mention_sys_cluster)
+        elif self.metric == pd_lea:
+            pn, pd = self.metric(sys_clusters, key_clusters,
+                    sys_mention_key_cluster,dict_phrasing_diversity)
+            rn, rd = self.metric(key_clusters, sys_clusters,
+                    key_mention_sys_cluster,dict_phrasing_diversity)
         else:
             pn, pd = self.metric(sys_clusters, sys_mention_key_cluster)
             rn, rd = self.metric(key_clusters, key_mention_sys_cluster)
@@ -101,10 +106,10 @@ class Evaluator:
                 self.aggregated_r_num, self.aggregated_r_den)
 
 
-def evaluate_documents(doc_coref_infos, metric, beta=1):
+def evaluate_documents(doc_coref_infos,dict_phrasing_diversity, metric, beta=1):
     evaluator = Evaluator(metric, beta=beta)
     for doc_id in doc_coref_infos:
-        evaluator.update(doc_coref_infos[doc_id])
+        evaluator.update(doc_coref_infos[doc_id],dict_phrasing_diversity)
     return (evaluator.get_recall(), evaluator.get_precision(),
             evaluator.get_f1())
 
@@ -211,7 +216,82 @@ def lea(input_clusters, output_clusters, mention_to_gold):
                         #           [str(s) for s in output_clusters[
                         #               mention_to_gold[m2]]])
 
-        num += len(c) * common_links / float(all_links) #This len(c) in the numerator must be the importance factor
+        num += len(c) * common_links / float(all_links)
         den += len(c)
+
+    return num, den
+
+
+
+def phrasing_diversity_calc(mentions) -> float:
+    """
+    Calculates a metric that represents phrasing complexity of an entity, i.e., how various is the wording of the
+    phrases referring to this entity. For more details see LREC paper
+    Returns:
+        Internal headword-based structure, value of the phrasing complexity
+
+
+    """
+
+    headwords_phrase_tree = {}
+    for mention_head,mention_wordset,mention_wo_stopwords in mentions:
+        if not len(mention_wo_stopwords):
+            continue
+
+        if mention_head not in headwords_phrase_tree:
+            headwords_phrase_tree[mention_head] = {"set": {mention_wordset},
+                                                            "list": [mention_wo_stopwords]}
+        else:
+            # set ensures unique phrases
+            headwords_phrase_tree[mention_head]["set"].add(mention_wordset)
+            # list keeps actual number of phrase occurence
+            headwords_phrase_tree[mention_head]["list"].append(mention_wo_stopwords)
+
+    sets = []
+    fractions = []
+    for _, head_properties in headwords_phrase_tree.items():
+        fractions.append(len(head_properties["set"]) / (len(head_properties["list"])))
+        sets.append(len(head_properties["set"]))
+
+    score = np.sum(np.array(fractions)) * np.sum(np.array(sets)) / len(mentions) if len(mentions) > 1 else 1
+    return float(format(score, '.3f'))
+
+
+def pd_lea(input_clusters, output_clusters, mention_to_gold,dict_phrasing_diversity):
+    num, den = 0, 0
+
+    for c in input_clusters:
+        phrasing_diversity = 0 #Default for singletons
+        if len(c) == 1:
+            all_links = 1
+            if c[0] in mention_to_gold and len(
+                    output_clusters[mention_to_gold[c[0]]]) == 1:
+                common_links = 1
+            else:
+                common_links = 0
+        else:
+            common_links = 0
+            all_links = len(c) * (len(c) - 1) / 2.0
+            mention_list = []
+            for i, m in enumerate(c):
+                mention_list.append(dict_phrasing_diversity[m.id])
+                if m in mention_to_gold:
+                    for m2 in c[i + 1:]:
+                        if m2 in mention_to_gold and mention_to_gold[
+                                m] == mention_to_gold[m2]:
+                            common_links += 1
+                        # else:
+                        #    print('!! ', m2, '--', m2.get_span(), ' ',
+                        #           m2.min_spans, ' ', mention_to_gold[m], ' ',
+                        #           mention_to_gold[m2], ' ' ,
+                        #           [str(s) for s in output_clusters[
+                        #               mention_to_gold[m]]], ' -- ',
+                        #           [str(s) for s in output_clusters[
+                        #               mention_to_gold[m2]]])
+                            
+            phrasing_diversity = phrasing_diversity_calc(mention_list)
+
+        num += phrasing_diversity * common_links / float(all_links) #This len(c) in the numerator must be the importance factor
+        den += phrasing_diversity
 
     return num, den

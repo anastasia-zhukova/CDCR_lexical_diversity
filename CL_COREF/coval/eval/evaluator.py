@@ -235,7 +235,7 @@ def phrasing_diversity_calc(mentions) -> float:
 
     headwords_phrase_tree = {}
     for mention_head,mention_wordset,mention_wo_stopwords in mentions:
-        if not len(mention_wo_stopwords):
+        if not mention_wo_stopwords:
             continue
 
         if mention_head not in headwords_phrase_tree:

@@ -42,7 +42,10 @@ if __name__ == '__main__':
     dict_test_data = {"ecbplus_test":['../CDCR/data/ECBplus-prep/output_data/test'], 
     "newswcl50":['../CDCR/data/NewsWCL50-prep/output_data/train',
      '../CDCR/data/NewsWCL50-prep/output_data/val',
-     '../CDCR/data/NewsWCL50-prep/output_data/test']}
+     '../CDCR/data/NewsWCL50-prep/output_data/test'],
+     "np4e":['../CDCR/data/NP4E-prep/output_data/train',
+     '../CDCR/data/NP4E-prep/output_data/val',
+     '../CDCR/data/NP4E-prep/output_data/test']}
 
     #Predict
     predictions_path = os.path.join(os.getcwd(), "predictions")

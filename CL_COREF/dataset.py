@@ -290,8 +290,8 @@ class CL_Dataset(Dataset):
             raise ValueError("Invalid mode. Supported values are 'train' and 'inference'.")
 
         #Here in this processing I should tokenize first, remove tokens in excess keeping the limit to 128, then concatenate 
-    def tokenize_mentions(self):    
-        #Validate if special token [E] is recornized by the tokenizer
+    def tokenize_mentions(self):
+        #Validate if special token [E] is recognized by the tokenizer
         start_token = self.cdcr_dataset.special_mention_tokens[0]
         end_token = self.cdcr_dataset.special_mention_tokens[1]
 
@@ -301,8 +301,14 @@ class CL_Dataset(Dataset):
         if len(mention_start)!=1 or len(mention_end)!=1:
             raise Exception("Either the special token [E] or [/E] is splitted in more than 1 token by the subword tokenizer")
         
-        #Tokenize mention repersentation with context
+        # Create a dictionary to store the tokens 
+        tokenized_dict = {}    
+        #Tokenize mention representation with context
         mention_keys = [key for key in self.cdcr_dataset.mentions_by_type[self.mention_type] if key in self.cdcr_dataset.mentions]
+        if not mention_keys:
+            print(f"dataset {self.cdcr_dataset.name} has no mentions of type {self.mention_type}")
+            return tokenized_dict
+        
         context_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[0]) for key in mention_keys]
         mention_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[1]) for key in mention_keys]
         #Remove linebreaks
@@ -329,10 +335,6 @@ class CL_Dataset(Dataset):
             print("csv debug files writen in main folder")
             sys.exit("Exiting due to tokenization error.")
 
-        # Create a dictionary to store the mappings
-        tokenized_dict = {}
-
-        
         for key in mention_keys: #Iterate over the encoded text based on the position of the key in the list
             # Access corresponding values in encoded_text
             input_ids = encoded_text["input_ids"][mention_keys.index(key)]

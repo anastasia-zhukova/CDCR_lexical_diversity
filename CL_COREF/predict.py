@@ -13,10 +13,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # Define arguments
     parser.add_argument('--model_path', type=str)
+    parser.add_argument('--export_predictions',action='store_true', default=False)
     args = parser.parse_args()
     
     #Initialize model
     model_path = args.model_path
+    export_predictions = args.export_predictions
     model_path_split = model_path.split("/")
 
     mention_type=model_path_split[1] 
@@ -43,9 +45,11 @@ if __name__ == '__main__':
     "newswcl50":['../CDCR/data/NewsWCL50-prep/output_data/train',
      '../CDCR/data/NewsWCL50-prep/output_data/val',
      '../CDCR/data/NewsWCL50-prep/output_data/test'],
-     "np4e":['../CDCR/data/NP4E-prep/output_data/train',
-     '../CDCR/data/NP4E-prep/output_data/val',
-     '../CDCR/data/NP4E-prep/output_data/test']}
+    "np4e":['../CDCR/data/NP4E-prep/output_data/train',
+    '../CDCR/data/NP4E-prep/output_data/val',
+    '../CDCR/data/NP4E-prep/output_data/test'],
+     'gvc':['../CDCR/data/GVC-prep/output_data/test']}
+
 
     #Predict
     predictions_path = os.path.join(os.getcwd(), "predictions")
@@ -55,17 +59,23 @@ if __name__ == '__main__':
     model.eval()
 
     for dataset_name,data_paths in dict_test_data.items():
+        print('-----------------------------')
+        print(f'Processing dataset {dataset_name}')
         cl_cdcr_dataset = CL_Dataset(name=dataset_name,data_paths=data_paths,context_method='hsu',
                 mention_type=mention_type,tokenizer=tokenizer, special_mention_tokens=end_start_special_tokens,mode="inference") 
+        
+        if not cl_cdcr_dataset.tokenized_mentions:
+            continue
+
         dataloader = create_data_loader(cl_cdcr=cl_cdcr_dataset,batch_size=test_batch_size)
         df_metrics, df_prediction = predict_and_evaluate(dataloader=dataloader,device=device,model=model,cl_cdcr_dataset=cl_cdcr_dataset,metrics="all")
         print(f"{dataset_name} results",df_metrics)
         print("--------------------")
         print(f"{dataset_name} test results: CoNLL F1/ LEA F1 / PD_LEA F1 {round(df_metrics.loc['conll','F1'],2)}/{round(df_metrics.loc['lea','F1'],2)}/{round(df_metrics.loc['pd_lea','F1'],2)}")
-
-        file_path = os.path.join(predictions_path, f"{dataset_name}_{mention_type}.csv")
-        df_prediction.to_csv(file_path)
-        print(f"{dataset_name} predictions exported to {file_path}")
+        if export_predictions:
+            file_path = os.path.join(predictions_path, f"{dataset_name}_{mention_type}.csv")
+            df_prediction.to_csv(file_path)
+            print(f"{dataset_name} predictions exported to {file_path}")
         
     print("---------------")
     print(f"Language model: {language_model_name}")

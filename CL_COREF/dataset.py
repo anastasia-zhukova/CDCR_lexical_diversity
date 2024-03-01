@@ -12,6 +12,7 @@ from torch.utils.data import Dataset, Subset
 import traceback
 from typing import Dict, Any
 
+from cluster_documents import return_mentions_with_predicted_topics
 nltk.download('stopwords')
 
 class Mention:
@@ -46,6 +47,8 @@ class Mention:
             mention_wordset = frozenset(mention_wo_stopwords)
             self.mention_wo_stopwords = mention_wo_stopwords
             self.mention_wordset = mention_wordset
+
+        
 
 
     def validate_token_str(self, tokens_from_sentence:list) ->list:
@@ -102,9 +105,10 @@ class Mention:
 
 class CDCR_Dataset:
     
-    def __init__(self,name,data_path,context_method:str,special_mention_tokens:tuple=("[E]","[/E]")):
+    def __init__(self,name,data_path,context_method:str,special_mention_tokens:tuple=("[E]","[/E]"),predicted_topics=False):
 
         self.mentions = {}
+        self.docs={}
         self.name = name
         self.data_path=data_path
         self.sentences = {}
@@ -122,6 +126,11 @@ class CDCR_Dataset:
         gold_clusters_df = pd.DataFrame(self.mentions_gold_topic_repr)
         gold_clusters_df["gold_cluster"] = pd.Categorical(gold_clusters_df["coref_chain"]).codes
         self.gold_clusters_df = gold_clusters_df
+
+        #Change gold subtopics to predicted topics for ECB+
+        if predicted_topics and name=="ecbplus_test":
+            print(f"changing gold subtopics to predicted subtopics in {name}")
+            self.mentions = return_mentions_with_predicted_topics(self.docs,self.mentions,compare_with_true_labels=True)
 
     def load_mentions(self):
         entity_types = {"/entity_mentions.json":"entity",
@@ -143,7 +152,7 @@ class CDCR_Dataset:
 
             # Load docs from conll_files
             docs = self.read_conll_file(path)
-            
+            self.docs.update(docs)
             #Process dictionary of sentences by document id
             new_sentences_dict = self.make_dict_of_sentences(docs)
 
@@ -255,10 +264,11 @@ class CL_Dataset(Dataset):
 
     def __init__(self,name,data_paths,context_method,mention_type,tokenizer, 
                  special_mention_tokens,mode="train",export_samples=False,
-                 additional_sampling=False): #Initialized tokenizer
+                 additional_sampling=False,predicted_topics=False): #Initialized tokenizer
         #I will tokenize all the sequences up-front
         from sampling import return_pairs_and_labels
-        self.cdcr_dataset = CDCR_Dataset(name=name, data_path=data_paths,context_method=context_method,special_mention_tokens=special_mention_tokens)
+        self.cdcr_dataset = CDCR_Dataset(name=name, data_path=data_paths,context_method=context_method,
+                                         special_mention_tokens=special_mention_tokens,predicted_topics=predicted_topics)
 
         #Tokenize mentions
         self.mention_type = mention_type

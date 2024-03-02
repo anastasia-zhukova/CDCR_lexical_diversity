@@ -134,7 +134,11 @@ def get_coref_infos(dataset_name, predictions_df,
     return doc_coref_infos
 
 def compute_cdcr_metrics(cdcr_dataset_name,predictions_df,metrics="all",NP_only=False, 
-                         remove_nested=False, keep_singletons=True, min_span=False):
+                         remove_nested=False, without_singletons=False, min_span=False):
+    
+    keep_singletons = True
+    if without_singletons:
+        keep_singletons=False
     #Define metrics 
     metrics = allmetrics if 'all' in metrics else [(name, metric) for name, metric in allmetrics if name in metrics]
 
@@ -160,11 +164,11 @@ def compute_cdcr_metrics(cdcr_dataset_name,predictions_df,metrics="all",NP_only=
     df_metrics.loc["conll", "F1"] = df_metrics.loc[["muc", "bcub", "ceafe"], "F1"].mean()
     return df_metrics
 
-def predict_and_evaluate(dataloader,device,model,cl_cdcr_dataset,metrics="all"):
+def predict_and_evaluate(dataloader,device,model,cl_cdcr_dataset,metrics="all",without_singletons=False):
     cdcr_dataset=cl_cdcr_dataset.cdcr_dataset
     dict_embeddings_by_mention = create_embeddings_by_mention(dataloader=dataloader,device=device,model=model,cl_dataset_keys_list=cl_cdcr_dataset.keys_list)
     dict_embeddings_by_topic=return_embeddings_by_topic(dict_embeddings_by_mention=dict_embeddings_by_mention,mentions=cdcr_dataset.mentions)
     predicted_clusters_df = predict_clusters(dict_embeddings_by_topic)
     merged_df = cdcr_dataset.gold_clusters_df.merge(predicted_clusters_df,how="inner", on="mention_id")
-    df_metrics = compute_cdcr_metrics(cdcr_dataset_name=cdcr_dataset.name,predictions_df=merged_df,metrics=metrics)
+    df_metrics = compute_cdcr_metrics(cdcr_dataset_name=cdcr_dataset.name,predictions_df=merged_df,metrics=metrics,without_singletons=without_singletons)
     return df_metrics, merged_df

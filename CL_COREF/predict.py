@@ -14,11 +14,15 @@ if __name__ == '__main__':
     # Define arguments
     parser.add_argument('--model_path', type=str)
     parser.add_argument('--export_predictions',action='store_true', default=False)
+    parser.add_argument('--predicted_topics',action='store_true', default=False)
+    parser.add_argument('--without_singletons',action='store_true', default=False)
     args = parser.parse_args()
     
     #Initialize model
     model_path = args.model_path
     export_predictions = args.export_predictions
+    predicted_topics = args.predicted_topics
+    without_singletons = args.without_singletons
     model_path_split = model_path.split("/")
 
     mention_type=model_path_split[1] 
@@ -45,9 +49,9 @@ if __name__ == '__main__':
     "newswcl50":['../CDCR/data/NewsWCL50-prep/output_data/train',
      '../CDCR/data/NewsWCL50-prep/output_data/val',
      '../CDCR/data/NewsWCL50-prep/output_data/test'],
-    "np4e":['../CDCR/data/NP4E-prep/output_data/train',
-    '../CDCR/data/NP4E-prep/output_data/val',
-    '../CDCR/data/NP4E-prep/output_data/test'],
+    #"np4e":['../CDCR/data/NP4E-prep/output_data/train',
+    #'../CDCR/data/NP4E-prep/output_data/val',
+    #'../CDCR/data/NP4E-prep/output_data/test'],
      'gvc':['../CDCR/data/GVC-prep/output_data/test']}
 
 
@@ -62,13 +66,13 @@ if __name__ == '__main__':
         print('-----------------------------')
         print(f'Processing dataset {dataset_name}')
         cl_cdcr_dataset = CL_Dataset(name=dataset_name,data_paths=data_paths,context_method='hsu',
-                mention_type=mention_type,tokenizer=tokenizer, special_mention_tokens=end_start_special_tokens,mode="inference") 
+                mention_type=mention_type,tokenizer=tokenizer, special_mention_tokens=end_start_special_tokens,mode="inference",predicted_topics=predicted_topics) 
         
         if not cl_cdcr_dataset.tokenized_mentions:
             continue
 
         dataloader = create_data_loader(cl_cdcr=cl_cdcr_dataset,batch_size=test_batch_size)
-        df_metrics, df_prediction = predict_and_evaluate(dataloader=dataloader,device=device,model=model,cl_cdcr_dataset=cl_cdcr_dataset,metrics="all")
+        df_metrics, df_prediction = predict_and_evaluate(dataloader=dataloader,device=device,model=model,cl_cdcr_dataset=cl_cdcr_dataset,metrics="all",without_singletons=without_singletons)
         print(f"{dataset_name} results",df_metrics)
         print("--------------------")
         print(f"{dataset_name} test results: CoNLL F1/ LEA F1 / PD_LEA F1 {round(df_metrics.loc['conll','F1'],2)}/{round(df_metrics.loc['lea','F1'],2)}/{round(df_metrics.loc['pd_lea','F1'],2)}")

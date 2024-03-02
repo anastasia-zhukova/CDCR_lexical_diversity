@@ -37,7 +37,7 @@ def return_embeddings_by_topic(dict_embeddings_by_mention,mentions):
             dict_embeddings_by_topic[topic_id_temp] = {mention_key: embedding}
     return dict_embeddings_by_topic
 
-def predict_clusters(dict_embeddings_by_topic):
+def predict_clusters(dict_embeddings_by_topic,clustering_threshold=0.2):
     predicted_clusters_df_list = []
     max_predicted_cluster_value = 0
 
@@ -48,7 +48,7 @@ def predict_clusters(dict_embeddings_by_topic):
 
         #Clustering
         clustering = AgglomerativeClustering(n_clusters=None, metric='precomputed', linkage='average',
-                                                distance_threshold=0.2)
+                                                distance_threshold=clustering_threshold)
         #Implement CoNLL score with this fit and save as Dataframe
         adjusted_predicted_label = clustering.fit_predict(distances) + max_predicted_cluster_value #Ensure no label overlap when moving to another topic
         predicted_df_by_topic = pd.DataFrame({"mention_id":list(dict_topic.keys()),
@@ -164,11 +164,11 @@ def compute_cdcr_metrics(cdcr_dataset_name,predictions_df,metrics="all",NP_only=
     df_metrics.loc["conll", "F1"] = df_metrics.loc[["muc", "bcub", "ceafe"], "F1"].mean()
     return df_metrics
 
-def predict_and_evaluate(dataloader,device,model,cl_cdcr_dataset,metrics="all",without_singletons=False):
+def predict_and_evaluate(dataloader,device,model,cl_cdcr_dataset,metrics="all",without_singletons=False,clustering_threshold=0.2):
     cdcr_dataset=cl_cdcr_dataset.cdcr_dataset
     dict_embeddings_by_mention = create_embeddings_by_mention(dataloader=dataloader,device=device,model=model,cl_dataset_keys_list=cl_cdcr_dataset.keys_list)
     dict_embeddings_by_topic=return_embeddings_by_topic(dict_embeddings_by_mention=dict_embeddings_by_mention,mentions=cdcr_dataset.mentions)
-    predicted_clusters_df = predict_clusters(dict_embeddings_by_topic)
+    predicted_clusters_df = predict_clusters(dict_embeddings_by_topic,clustering_threshold)
     merged_df = cdcr_dataset.gold_clusters_df.merge(predicted_clusters_df,how="inner", on="mention_id")
     df_metrics = compute_cdcr_metrics(cdcr_dataset_name=cdcr_dataset.name,predictions_df=merged_df,metrics=metrics,without_singletons=without_singletons)
     return df_metrics, merged_df

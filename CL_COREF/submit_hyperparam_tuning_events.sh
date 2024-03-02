@@ -1,0 +1,65 @@
+#!/bin/bash
+#SBATCH --job-name=train-cross-encoder-gpu
+#SBATCH -t 10:00:00                  # estimated time # TODO: adapt to your needs
+#SBATCH -p grete:shared              # the partition you are training on (i.e., which nodes), for nodes see sinfo -p grete:shared --format=%N,%G
+#SBATCH -G A100:1                   # take 1 GPU, see https://www.hlrn.de/doc/display/PUB/GPU+Usage for more options
+#SBATCH --mem-per-gpu=30G             # setting the right constraints for the splitted gpu partitions
+#SBATCH --nodes=1                    # total number of nodes
+#SBATCH --ntasks=1                   # total number of tasks
+#SBATCH --cpus-per-task=4            # number cores per task
+#SBATCH --mail-type=all              # send mail when job begins and ends
+#SBATCH --mail-user=s.gonzalezorjuela@stud.uni-goettingen.de  # TODO: change this to your mailaddress!
+#SBATCH --output=./slurm_files/slurm-%x-%j.out     # where to write output, %x give job name, %j names job id
+#SBATCH --error=./slurm_files/slurm-%x-%j.err      # where to write slurm error
+
+source $WORK/.bashrc
+loadconda
+module load cuda
+echo nvidia-smi 
+
+conda info --envs
+conda activate cdcr
+which python 
+echo $PATH
+
+# Printing out some info.
+echo "Submitting job with sbatch from directory: ${SLURM_SUBMIT_DIR}"
+echo "Home directory: ${HOME}"
+echo "Working directory: $PWD"
+echo "Current node: ${SLURM_NODELIST}"
+
+
+export http_proxy=http://www-cache.gwdg.de:3128
+export https_proxy=http://www-cache.gwdg.de:3128
+
+echo "added http proxy"
+
+# For debugging purposes.
+python --version
+python -m torch.utils.collect_env
+nvcc -V
+
+# Run the script:
+#TODO Define train setups with fixed val and train paths in the train script and save the setup number in the models path
+#Common arguments
+MENTION_TYPE=event
+LANGUAGE_MODEL=roberta-large
+#LANGUAGE_MODEL=deberta-large
+#LANGUAGE_MODEL=bart-large
+#LANGUAGE_MODEL=flan-t5-large
+# LANGUAGE_MODEL=conv-bert-base
+# LANGUAGE_MODEL=deberta-v2-xlarge
+#LANGUAGE_MODEL=da-roberta-large
+# LANGUAGE_MODEL=roberta-allen-dapt5000
+# LANGUAGE_MODEL=roberta-large
+
+
+
+python -u train_tuning.py --job_id=${SLURM_JOB_ID} --mention_type ${MENTION_TYPE}  --val_batch_size 128 --language_model "${LANGUAGE_MODEL}"
+
+# Run the script with logger:
+#python -u train_with_logger.py -l ~/${SLURM_JOB_NAME}_${SLURM_JOB_ID}  -t True -p True -d True -s True -f True
+
+# Obtain job information for estimated start and end times
+job_info=$(scontrol show job $SLURM_JOB_ID)
+

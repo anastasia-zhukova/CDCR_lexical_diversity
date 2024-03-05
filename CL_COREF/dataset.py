@@ -113,8 +113,8 @@ class CDCR_Dataset:
         self.data_path=data_path
         self.sentences = {}
         self.mentions_by_topic = defaultdict(list)
-        self.mentions_by_sentence = defaultdict(list)
-        self.mentions_by_type = defaultdict(list)
+        self.mentions_by_sentence = defaultdict(set)
+        self.mentions_by_type = defaultdict(set)
         self.mentions_gold_topic_repr = []
         self.sentences_by_topic = defaultdict(dict)
         self.context_method = context_method
@@ -206,8 +206,8 @@ class CDCR_Dataset:
 
                         #Grouping by other variables
                         self.mentions[new_mention.mention_id]=new_mention
-                        self.mentions_by_sentence[new_mention.conll_sent_key].append(new_mention.mention_id)
-                        self.mentions_by_type[new_mention.type].append(new_mention.mention_id)
+                        self.mentions_by_sentence[new_mention.conll_sent_key].add(new_mention.mention_id)
+                        self.mentions_by_type[new_mention.type].add(new_mention.mention_id)
                         self.mentions_gold_topic_repr.append(new_mention.return_gold_topic_representation())
 
                         #Grouping by dataset name and topic id
@@ -314,7 +314,7 @@ class CL_Dataset(Dataset):
         # Create a dictionary to store the tokens 
         tokenized_dict = {}    
         #Tokenize mention representation with context
-        mention_keys = [key for key in self.cdcr_dataset.mentions_by_type[self.mention_type] if key in self.cdcr_dataset.mentions]
+        mention_keys = set(self.cdcr_dataset.mentions_by_type[self.mention_type]).intersection(self.cdcr_dataset.mentions.keys())
         if not mention_keys:
             print(f"dataset {self.cdcr_dataset.name} has no mentions of type {self.mention_type}")
             return tokenized_dict

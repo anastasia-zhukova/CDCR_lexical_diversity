@@ -37,7 +37,7 @@ def sentences_processing(dict_sentences_by_topic,mentions_by_sentence,mentions_b
 
         # Create a dictionary using the indices
         lower_triangle_dict = {}
-        topic_mentions_set = {}
+        topic_mentions_set = set()
         for i, j in indices:
             key_sentence1 = list_of_keys[i.item()]
             key_sentence2 = list_of_keys[j.item()]
@@ -103,50 +103,72 @@ def create_mention_pairs(dict_sentences_pairs_similarity,mentions, mention_pairs
                 if same_coref_chain:
                     dict_positive_pairs_by_topic[topic].update(new_dict_entry)
                     temp_dict_entry = {"topic":topic,"sentence1":sentence_key1,"sentence2":sentence_key2,"sentence_similarity":sentence_similarity_score,
-                                       "mention1":mention_key1,"mention2":mention_key2,"coref":1}
+                                       "mention1":mention_key1,"mention2":mention_key2,"mention_similarity":mention_pair_score,"coref":1}
                     #add to temp dataset
                 else:
                     dict_negative_pairs_by_topic[topic].update(new_dict_entry)
                     temp_dict_entry = {"topic":topic,"sentence1":sentence_key1,"sentence2":sentence_key2,"sentence_similarity":sentence_similarity_score,
-                    "mention1":mention_key1,"mention2":mention_key2,"coref":0}
+                    "mention1":mention_key1,"mention2":mention_key2,"mention_similarity":mention_pair_score,"coref":0}
                 
                 temp_dataset.append(temp_dict_entry)
 
             
-        ## Subsampling
-        positive_pairs_scores= list(dict_positive_pairs_by_topic[topic].values())
+        # ## Subsampling
+        # positive_pairs_scores= list(dict_positive_pairs_by_topic[topic].values())
 
-        #Downsample negative pairs based on positive pairs score's Q3
-        third_quartile = np.percentile(positive_pairs_scores, 75)
-        dict_negative_pairs_by_topic[topic] = {key: value for key, value in dict_negative_pairs_by_topic[topic].items() if value > third_quartile}
+        # #Downsample negative pairs based on positive pairs score's Q3
+        # third_quartile = np.percentile(positive_pairs_scores, 75)
+        # dict_negative_pairs_by_topic[topic] = {key: value for key, value in dict_negative_pairs_by_topic[topic].items() if value > third_quartile}
         
-        #Downsample positive pairs based on topic's median
-        dict_positive_pairs_by_topic[topic] = {key: value for key, value in dict_positive_pairs_by_topic[topic].items() if value < topic_sentence_similarity_median}
+        # #Downsample positive pairs based on topic's median
+        # dict_positive_pairs_by_topic[topic] = {key: value for key, value in dict_positive_pairs_by_topic[topic].items() if value < topic_sentence_similarity_median}
 
-        #Second subsampling based on mention's number (6sqrt(n))
-        if additional_sampling:
-            mention_keys_current_topic = list(mention_keys_by_topic_in_type[topic])
-            positive_limit =  int(6*len(mention_keys_current_topic)**(1/2))
-            negative_limit = positive_limit*15
+        # #Second subsampling based on mention's number (6sqrt(n))
+        # if additional_sampling:
+        #     mention_keys_current_topic = list(mention_keys_by_topic_in_type[topic])
+        #     positive_limit =  int(6*len(mention_keys_current_topic)**(1/2))
+        #     negative_limit = positive_limit*15
 
-            dict_positives_current_topic = dict_positive_pairs_by_topic[topic]
-            dict_negatives_current_topic = dict_negative_pairs_by_topic[topic]
+        #     dict_positives_current_topic = dict_positive_pairs_by_topic[topic]
+        #     dict_negatives_current_topic = dict_negative_pairs_by_topic[topic]
 
-            if len(dict_positives_current_topic)>positive_limit:
-                print(f"topic {topic} current positives {len(dict_positives_current_topic)} positive limit {positive_limit} ")
-                sampled_keys = random.sample(dict_positives_current_topic.keys(), positive_limit)
-                dict_positive_pairs_by_topic[topic] = {key: dict_positives_current_topic[key] for key in sampled_keys}
+        #     if len(dict_positives_current_topic)>positive_limit:
+        #         print(f"topic {topic} current positives {len(dict_positives_current_topic)} positive limit {positive_limit} ")
+        #         sampled_keys = random.sample(dict_positives_current_topic.keys(), positive_limit)
+        #         dict_positive_pairs_by_topic[topic] = {key: dict_positives_current_topic[key] for key in sampled_keys}
 
-            if len(dict_negatives_current_topic)>negative_limit:
-                print(f"topic {topic} current negatives {len(dict_negatives_current_topic)} negative limit {negative_limit} ")
-                sampled_keys = random.sample(dict_negatives_current_topic.keys(), negative_limit)
-                dict_negative_pairs_by_topic[topic] = {key: dict_negatives_current_topic[key] for key in sampled_keys}
+        #     if len(dict_negatives_current_topic)>negative_limit:
+        #         print(f"topic {topic} current negatives {len(dict_negatives_current_topic)} negative limit {negative_limit} ")
+        #         sampled_keys = random.sample(dict_negatives_current_topic.keys(), negative_limit)
+        #         dict_negative_pairs_by_topic[topic] = {key: dict_negatives_current_topic[key] for key in sampled_keys}
 
-    final_dataset = pd.DataFrame(temp_dataset) 
-    final_dataset.to_csv("temporary_validation.csv")
+    df = pd.DataFrame(temp_dataset)
+    #Sentence similarity
+    df_sentences = df.drop_duplicates(subset=['sentence1','sentence2'])[['topic','sentence1','sentence2','sentence_similarity']].reset_index(drop=True)
+    df_sentences['median_sentence_similarity'] = df_sentences.groupby('topic')['sentence_similarity'].transform('median')
+    #Filter sentence pairs by similarity
+    df_positive_sentences = df_sentences.query('sentence_similarity<=median_sentence_similarity')
+    df_negative_sentences = df_sentences
+    if additional_sampling:
+        df_negative_sentences = df_sentences.query('sentence_similarity>median_sentence_similarity')
+
+    df_positive_mentions = df.query('coref==1').merge(df_positive_sentences[['sentence1','sentence2','median_sentence_similarity']],how='inner',on=['sentence1','sentence2'])
+    df_positive_mentions = df_positive_mentions[['topic','mention1','mention2','mention_similarity',"coref"]]
+    df_positive_mentions['median_mention_similarity'] = df_positive_mentions.groupby('topic')['mention_similarity'].transform('median')
+    global_positive_median = df_positive_mentions.mention_similarity.median()
+    df_positive_mentions = df_positive_mentions.query('mention_similarity<=median_mention_similarity')
+    #Negative mention pairs
+    df_negative_mentions = df.query('coref==0').merge(df_negative_sentences[['sentence1','sentence2','median_sentence_similarity']],how='inner',on=['sentence1','sentence2'])
+    df_negative_mentions = df_negative_mentions[['topic','mention1','mention2','mention_similarity',"coref"]]
+    df_negative_mentions = df_negative_mentions[df_negative_mentions['mention_similarity'] > global_positive_median]
+    print(f'there are {len(df_positive_mentions)} positive mention pairs and {len(df_negative_mentions)} negative mentions')
+    print(f"median positive pairs similarity {df_positive_mentions.mention_similarity.median()} median negative pairs similarity {df_negative_mentions.mention_similarity.median()}") 
+    #Concat samples
+    df_samples = pd.concat([df_positive_mentions[["mention1","mention2","coref"]],df_negative_mentions[["mention1","mention2","coref"]]])
+    #final_dataset.to_csv("temporary_validation.csv")
 
         #Return unnested dictionaries, no longer by topic
-    return unnest_dictionary(dict_positive_pairs_by_topic), unnest_dictionary(dict_negative_pairs_by_topic)
+    return list(zip(df_samples['mention1'], df['mention2'])), df_samples["coref"].to_list()
 
 def return_pairs_and_labels(cdcr_dataset, mention_type, additional_sampling):
     #TODO lift restriction on ECB topic 34 once the dataset is updated
@@ -158,15 +180,9 @@ def return_pairs_and_labels(cdcr_dataset, mention_type, additional_sampling):
                                                                                cdcr_dataset.mentions_by_type[mention_type])
     # Previous method guarantees there is at least 1 mention of the chosen type in each sentence
 
-    positive_pairs,negative_pairs = create_mention_pairs(dict_sentences_pairs_similarity=sentences_pairs_similarity_dict,
+    pairs,labels = create_mention_pairs(dict_sentences_pairs_similarity=sentences_pairs_similarity_dict,
                                                  mentions = cdcr_dataset.mentions, mention_pairs_by_pair=dict_mention_pairs_by_pair,
                                                  mention_keys_by_topic_in_type = dict_mentions_by_topic_in_type,
                                                  additional_sampling = additional_sampling)
 
-    positive_labels, negative_labels= [1]*len(positive_pairs), [0]*len(negative_pairs)
-    #Extract keys from pairs, not the similarity score
-    all_pairs = list(positive_pairs.keys()) + list(negative_pairs.keys())
-    all_labels = positive_labels + negative_labels
-    all_scores = list(positive_pairs.values()) + list(negative_pairs.values())
-
-    return all_pairs,all_labels,all_scores
+    return pairs,labels

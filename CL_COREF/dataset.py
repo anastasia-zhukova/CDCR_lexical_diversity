@@ -263,7 +263,7 @@ class CDCR_Dataset:
 class CL_Dataset(Dataset):
 
     def __init__(self,name,data_paths,context_method,mention_type,tokenizer, 
-                 special_mention_tokens,mode="train",export_samples=False,
+                 special_mention_tokens,mode="train",
                  additional_sampling=False,predicted_topics=False): #Initialized tokenizer
         #I will tokenize all the sequences up-front
         from sampling import return_pairs_and_labels
@@ -279,20 +279,11 @@ class CL_Dataset(Dataset):
         #Load pair keys and labels
         if mode=="train":
             start_time = time.time()
-            self.all_pairs, self.all_labels, all_scores = return_pairs_and_labels(cdcr_dataset=self.cdcr_dataset,
+            self.all_pairs, self.all_labels = return_pairs_and_labels(cdcr_dataset=self.cdcr_dataset,
                                                                         mention_type=self.mention_type,additional_sampling=additional_sampling)            
             end_time = time.time()
             elapsed_time = end_time - start_time
             print(f"Time elapsed for sampling: {elapsed_time} seconds")
-            if export_samples:
-                dict_samples = {f"{k1}###{k2}": [label,score] for (k1, k2), label,score in zip(self.all_pairs,self.all_labels,all_scores)}
-                json_file_path = f'{name}_samples_{ self.mention_type}.json'
-
-                # Export the dictionary to JSON
-                with open(json_file_path, 'w') as json_file:
-                    json.dump(dict_samples, json_file, indent=4)
-
-                print(f'Nested dictionary has been exported to {json_file_path}.')
             
         elif mode == 'inference':
             self.keys_list = list(self.tokenized_mentions.keys())
@@ -314,11 +305,11 @@ class CL_Dataset(Dataset):
         # Create a dictionary to store the tokens 
         tokenized_dict = {}    
         #Tokenize mention representation with context
-        mention_keys = set(self.cdcr_dataset.mentions_by_type[self.mention_type]).intersection(self.cdcr_dataset.mentions.keys())
+        mention_keys = self.cdcr_dataset.mentions_by_type[self.mention_type].intersection(self.cdcr_dataset.mentions.keys())
         if not mention_keys:
             print(f"dataset {self.cdcr_dataset.name} has no mentions of type {self.mention_type}")
             return tokenized_dict
-        
+        mention_keys = list(mention_keys)
         context_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[0]) for key in mention_keys]
         mention_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[1]) for key in mention_keys]
         #Remove linebreaks

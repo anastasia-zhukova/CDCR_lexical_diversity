@@ -21,7 +21,7 @@ torch.cuda.manual_seed_all(seed)
 
 #Functions
 
-def train_func(model, optimizer, train_loader,loss_fn): #What happens in an epoch, also pass contrastive loss. They are not accumulating loss
+def train_func(model, optimizer, train_loader,loss_fn):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -68,22 +68,21 @@ def train_setup(config):
         end_start_special_tokens.append(f"[/{token}]")
     #Create tokenizer
     tokenizer = create_tokenizer(config["language_model_name"],end_start_special_tokens)
-
     #define data paths
     if config["data_setup"]==0:
         train_dataset_name = "ecbplus_train"
-        train_conll_paths = ['../CDCR/data/ECBplus-prep/output_data/train']
+        train_conll_paths = [os.path.join(config["base_data_path"],"ECBplus-prep","output_data", 'train')]
 
         val_dataset_name = "ecbplus_val"
-        val_conll_paths = ['../CDCR/data/ECBplus-prep/output_data/val']
+        val_conll_paths = [os.path.join(config["base_data_path"],"ECBplus-prep","output_data", 'val')]
     else:
-        raise Exception(f"data_setup={config["data_setup"]} is not a valid option")
+        raise Exception(f"data_setup={config['data_setup']} is not a valid option")
 
     #create dataloaders
 
     cl_cdcr_train = CL_Dataset(name=train_dataset_name,data_paths=train_conll_paths,context_method=config["context_method"],
                         mention_type=config["mention_type"],tokenizer=tokenizer, special_mention_tokens=end_start_special_tokens,mode="train",
-                        export_samples=config["export_samples"], additional_sampling=config["additional_sampling"]) 
+                         additional_sampling=config["additional_sampling"]) 
 
     cl_cdcr_val = CL_Dataset(name=val_dataset_name,data_paths=val_conll_paths,context_method=config["context_method"],
                     mention_type=config["mention_type"],tokenizer=tokenizer, special_mention_tokens=end_start_special_tokens,mode="inference") 
@@ -118,7 +117,7 @@ def train_setup(config):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # Define arguments
-    parser.add_argument("--data_setup",type=str,default=0)
+    parser.add_argument("--data_setup",type=int,default=0)
     parser.add_argument('--mention_type', type=str, default='event')
     parser.add_argument('--context_method', type=str, default='hsu')
     parser.add_argument('--language_model', type=str, default='roberta-large')
@@ -144,6 +143,9 @@ if __name__ == '__main__':
         os.makedirs(out_dir)
     model_path = os.path.join(out_dir, f"siamese_model_batch_hyperparameter_tuning.pth")
     
+    #Create source data path
+    base_data_path = os.path.abspath('../CDCR/data')
+
     #Print general info about the run
     print(f"model_path: {model_path}")
     if args.additional_sampling:
@@ -156,12 +158,12 @@ if __name__ == '__main__':
         "data_setup":args.data_setup,
         "context_method": args.context_method,
         "mention_type" : args.mention_type,
-        "export_samples" : args.export_samples,
         "language_model_name" : args.language_model,
         "special_tokens": args.special_tokens,
         "additional_sampling" : args.additional_sampling,
         "val_batch_size":args.val_batch_size,
         "model_path":model_path,
+        "base_data_path":base_data_path,
         #Variables
         "learning_rate": tune.choice([2e-7, 2e-6, 2e-8]), 
         "margin":tune.choice([0.4, 0.5, 0.6,0.7]),

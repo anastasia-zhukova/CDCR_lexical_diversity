@@ -43,19 +43,10 @@ nvcc -V
 #TODO Define train setups with fixed val and train paths in the train script and save the setup number in the models path
 #Common arguments
 MENTION_TYPE=event
-LANGUAGE_MODEL=roberta-large
-#LANGUAGE_MODEL=deberta-large
-#LANGUAGE_MODEL=bart-large
-#LANGUAGE_MODEL=flan-t5-large
-# LANGUAGE_MODEL=conv-bert-base
-# LANGUAGE_MODEL=deberta-v2-xlarge
-#LANGUAGE_MODEL=da-roberta-large
-# LANGUAGE_MODEL=roberta-allen-dapt5000
-# LANGUAGE_MODEL=roberta-large
 
 
 
-python -u train_tuning.py --job_id=${SLURM_JOB_ID} --mention_type ${MENTION_TYPE}  --val_batch_size 128 --language_model "${LANGUAGE_MODEL}"
+python -u train_tuning_events.py --job_id=${SLURM_JOB_ID} --mention_type ${MENTION_TYPE}  
 
 # Run the script with logger:
 #python -u train_with_logger.py -l ~/${SLURM_JOB_NAME}_${SLURM_JOB_ID}  -t True -p True -d True -s True -f True

@@ -41,8 +41,7 @@ python -m torch.utils.collect_env
 nvcc -V
 
 # Run the script:
-python -u predict.py --model_path models/entity/flan-t5-large/tokens_E/siamese_model_batch_16_epochs_50.pth --without_singletons
-
+python -u predict.py --model_path models/entity/roberta-large/tokens_E/siamese_model_batch_64_epochs_50_margin_0.8_threshold_0.2_setup_2.pth
 
 # Run the script with logger:
 #python -u train_with_logger.py -l ~/${SLURM_JOB_NAME}_${SLURM_JOB_ID}  -t True -p True -d True -s True -f True

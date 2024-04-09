@@ -93,14 +93,14 @@ def train_setup(gpu_id,config):
     for epoch in range(args.num_epochs):
         cumulative_loss = train_func(model=model, optimizer=optimizer, train_loader=train_dataloader,loss_fn=contrastive_loss)
         print(f'epoch {epoch+1}/{args.num_epochs}, Train accumulated loss: {round(cumulative_loss,2)}')
-        epoch_metric = test_func(model=model, data_loader=val_dataloader,cl_cdcr_dataset=cl_cdcr_val,clustering_threshold=config["clustering_threshold"])
+        epoch_metric = test_func(model=model, data_loader=val_dataloader,cl_cdcr_dataset=cl_cdcr_val,clustering_threshold=config["clustering_threshold"],metric=config["metric"])
         
         # Store the best model
         if epoch_metric>best_metric:
             best_metric=epoch_metric
             torch.save(model.state_dict(), config["model_path"])
 
-            print(f'epoch {epoch+1}/{args.num_epochs}, model saved')  
+            print(f'epoch {epoch+1}/{args.num_epochs} obtained better {config["metric"]}, model saved')  
             print("-------------------------------------------------------------------")
 
 if __name__ == '__main__':
@@ -118,6 +118,7 @@ if __name__ == '__main__':
     parser.add_argument('--margin', type=float, default=0.4, help='margin')
     parser.add_argument('--clustering_threshold', type=float, default=0.2, help='clustering threshold')
     parser.add_argument('--additional_sampling', action='store_true', default=False, help='Additional sampling or not')
+    parser.add_argument('--metric', type=str, default='conll')
     #Job ID to check logs
     parser.add_argument('--job_id', type=str, default= '')
     # Number of GPUs available
@@ -133,6 +134,7 @@ if __name__ == '__main__':
         os.makedirs(out_dir)
     model_path = os.path.join(out_dir, f"siamese_model_batch_{args.train_batch_size}_epochs_{args.num_epochs}_margin_{args.margin}_threshold_{args.clustering_threshold}_setup_{args.data_setup}.pth")
     print("model path:", model_path)
+    print("training metrics:", args.metric)
 
     #Create data source paths
     base_data_path = os.path.abspath('../CDCR/data')
@@ -143,6 +145,22 @@ if __name__ == '__main__':
 
         val_dataset_name = "ecbplus_val"
         val_conll_paths = [os.path.join(base_data_path,"ECBplus-prep","output_data", 'val')]
+    elif args.data_setup==1:
+        train_dataset_name = "ecbplus_fcc_train"
+        train_conll_paths = [os.path.join(base_data_path,"ECBplus-prep","output_data", 'train'),
+                             os.path.join(base_data_path,"FCC-prep","output_data_FCC-T", 'train')]
+
+        val_dataset_name = "ecbplus_fcc_train"
+        val_conll_paths = [os.path.join(base_data_path,"ECBplus-prep","output_data", 'val'),
+                           os.path.join(base_data_path,"FCC-prep","output_data_FCC-T", 'val')]
+    elif args.data_setup==2:
+        train_dataset_name = "ecbplus_np4e_train"
+        train_conll_paths = [os.path.join(base_data_path,"ECBplus-prep","output_data", 'train'),
+                             os.path.join(base_data_path,"NP4E-prep","output_data", 'train')]
+
+        val_dataset_name = "ecbplus_np4e_val"
+        val_conll_paths = [os.path.join(base_data_path,"ECBplus-prep","output_data", 'val'),
+                           os.path.join(base_data_path,"NP4E-prep","output_data", 'val')]
     else:
         raise Exception(f"data_setup={args.data_setup} is not a valid option")
 

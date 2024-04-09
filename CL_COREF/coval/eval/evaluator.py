@@ -3,6 +3,7 @@ https://github.com/clarkkev/deep-coref/blob/master/evaluation.py
 """
 from collections import Counter
 import numpy as np
+import pandas as pd
 from scipy.optimize import linear_sum_assignment
 
 
@@ -37,7 +38,7 @@ def evaluate_non_referrings(doc_non_referring_infos):
 
 
 class Evaluator:
-    def __init__(self, metric, beta=1, keep_aggregated_values=False):
+    def __init__(self, metric,dataset_name, beta=1, keep_aggregated_values=False,):
         self.p_num = 0
         self.p_den = 0
         self.r_num = 0
@@ -45,6 +46,7 @@ class Evaluator:
         self.metric = metric
         self.beta = beta
         self.keep_aggregated_values = keep_aggregated_values
+        self.dataset_name=dataset_name
 
         if keep_aggregated_values:
             self.aggregated_p_num = []
@@ -64,10 +66,14 @@ class Evaluator:
             rn, rd = self.metric(key_clusters, sys_clusters,
                     key_mention_sys_cluster)
         elif self.metric == pd_lea:
-            pn, pd = self.metric(sys_clusters, key_clusters,
-                    sys_mention_key_cluster,dict_phrasing_diversity)
-            rn, rd = self.metric(key_clusters, sys_clusters,
-                    key_mention_sys_cluster,dict_phrasing_diversity)
+            pn, pd,predicted_clusters_pd_df = self.metric(sys_clusters, key_clusters,
+                    sys_mention_key_cluster,dict_phrasing_diversity,"predicted")
+            rn, rd,gold_clusters_pd_df = self.metric(key_clusters, sys_clusters,
+                    key_mention_sys_cluster,dict_phrasing_diversity,"gold")
+
+            combined_df = gold_clusters_pd_df.merge(predicted_clusters_pd_df, on='mention_id',how='left')
+            combined_df['df'] = self.dataset_name
+            combined_df[['df','mention_id','coref_chain','gold_label','pd_gold','predicted_label','pd_predicted']].to_csv(f'predictions/clusters_{self.dataset_name}.csv',index=False,sep=';',decimal=',')
         else:
             pn, pd = self.metric(sys_clusters, sys_mention_key_cluster)
             rn, rd = self.metric(key_clusters, key_mention_sys_cluster)
@@ -106,8 +112,8 @@ class Evaluator:
                 self.aggregated_r_num, self.aggregated_r_den)
 
 
-def evaluate_documents(doc_coref_infos,dict_phrasing_diversity, metric, beta=1):
-    evaluator = Evaluator(metric, beta=beta)
+def evaluate_documents(doc_coref_infos,dict_phrasing_diversity, metric,dataset_name, beta=1):
+    evaluator = Evaluator(metric,dataset_name, beta=beta)
     for doc_id in doc_coref_infos:
         evaluator.update(doc_coref_infos[doc_id],dict_phrasing_diversity)
     return (evaluator.get_recall(), evaluator.get_precision(),
@@ -257,12 +263,14 @@ def phrasing_diversity_calc(mentions) -> float:
     return float(format(score, '.3f'))
 
 
-def pd_lea(input_clusters, output_clusters, mention_to_gold,dict_phrasing_diversity):
+def pd_lea(input_clusters, output_clusters, mention_to_gold,dict_phrasing_diversity,cluster_type):
     num, den = 0, 0
-
+    mention_pd_dict = {}
     for c in input_clusters:
         phrasing_diversity = 0 #Default for singletons
         if len(c) == 1:
+            #Add only mention with pd=0
+            mention_pd_dict[c[0].id]=0
             all_links = 1
             if c[0] in mention_to_gold and len(
                     output_clusters[mention_to_gold[c[0]]]) == 1:
@@ -273,9 +281,15 @@ def pd_lea(input_clusters, output_clusters, mention_to_gold,dict_phrasing_divers
             common_links = 0
             all_links = len(c) * (len(c) - 1) / 2.0
             mention_list = []
+            coreference_chain_list = []
+            label_list = []
+            mention_id_list = []
             for i, m in enumerate(c):
                 mention_list.append(dict_phrasing_diversity[m.id])
+                coreference_chain_list.append(m.coreference_chain)
+                mention_id_list.append(m.id)
                 if m in mention_to_gold:
+                    label_list.append(mention_to_gold[m])
                     for m2 in c[i + 1:]:
                         if m2 in mention_to_gold and mention_to_gold[
                                 m] == mention_to_gold[m2]:
@@ -288,10 +302,24 @@ def pd_lea(input_clusters, output_clusters, mention_to_gold,dict_phrasing_divers
                         #               mention_to_gold[m]]], ' -- ',
                         #           [str(s) for s in output_clusters[
                         #               mention_to_gold[m2]]])
+                else:
+                    label_list.append(-1)
                             
             phrasing_diversity = phrasing_diversity_calc(mention_list)
+            #Add mentions to the dictionary with phrasing diversity
+            for id,cluster_label,coref_chain in zip(mention_id_list,label_list,coreference_chain_list):
+                mention_pd_dict[id]=[phrasing_diversity,cluster_label,coref_chain]
+            
+            #dict to dataframe
+            mention_pd_df = pd.DataFrame.from_dict(mention_pd_dict,orient='index')
+            mention_pd_df = mention_pd_df.explode(0).reset_index()
+            if cluster_type=='gold':
+                mention_pd_df.columns=['mention_id','pd_'+cluster_type,'predicted_label',"coref_chain"]
+            else:
+                mention_pd_df.columns=['mention_id','pd_'+cluster_type,'gold_label',"coref_chain"]
+                mention_pd_df.drop(columns=['coref_chain'], inplace=True)
 
         num += phrasing_diversity * common_links / float(all_links) #This len(c) in the numerator must be the importance factor
         den += phrasing_diversity
 
-    return num, den
+    return num, den, mention_pd_df

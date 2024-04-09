@@ -53,32 +53,15 @@ def test_func(model, data_loader,cl_cdcr_dataset,clustering_threshold):
     df_metrics, _ = predict_and_evaluate(dataloader=data_loader,device=device,model=model,cl_cdcr_dataset=cl_cdcr_dataset,metrics="all",clustering_threshold=clustering_threshold,without_singletons=True)
     return df_metrics
 
-def train_hyperparam_tuning(config):
-
-    #Data setup
-
-    ##Load special tokens
-    end_start_special_tokens = []
-    for token in config["special_tokens"]:
-        end_start_special_tokens.append(f"[{token}]")
-        end_start_special_tokens.append(f"[/{token}]")
-
-    tokenizer = create_tokenizer(config["language_model"],end_start_special_tokens)
-
+def train_hyperparam_tuning(config,cl_cdcr_train,cl_cdcr_val,tokenizer):
     ##create dataloaders
-    cl_cdcr_train = CL_Dataset(name=config["train_dataset_name"],data_paths=config["train_conll_paths"],context_method=config["context_method"],
-                        mention_type=config["mention_type"],tokenizer=tokenizer, special_mention_tokens=end_start_special_tokens,mode="train",
-                        additional_sampling=config["additional_sampling"]) 
-
-    cl_cdcr_val = CL_Dataset(name=config["val_dataset_name"],data_paths=config["val_conll_paths"],context_method=config["context_method"],
-                    mention_type=config["mention_type"],tokenizer=tokenizer, special_mention_tokens=end_start_special_tokens,mode="inference") 
  
     train_dataloader = create_data_loader(cl_cdcr=cl_cdcr_train,batch_size=config["train_batch_size"])
 
     val_dataloader = create_data_loader(cl_cdcr=cl_cdcr_val,batch_size=config["val_batch_size"])
 
     ##Model creation
-    model = create_siamese_model(config["language_model"],tokenizer)
+    model = create_siamese_model(config["language_model_name"],tokenizer)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     
@@ -102,11 +85,9 @@ def train_hyperparam_tuning(config):
         df_metrics= test_func(model=model, data_loader=val_dataloader,cl_cdcr_dataset=cl_cdcr_val,clustering_threshold=config["clustering_threshold"])
         
         optimization_metric = config["optimization_metric"]
-        df_metrics.loc[optimization_metric,"F1"]
-        #Here I have to do the early stopping
-        # Store the best model. Save all best metrics
-        if optimization_metric>best_metric:
-            best_metric=optimization_metric
+        current_metric = df_metrics.loc[optimization_metric,"F1"]
+        if current_metric>best_metric:
+            best_metric=current_metric
             best_conll = df_metrics.loc["conll","F1"]
             best_lea = df_metrics.loc["lea","F1"]
             best_pd_lea = df_metrics.loc["pd_lea","F1"]
@@ -115,6 +96,7 @@ def train_hyperparam_tuning(config):
         else:
             epochs_without_improvement+=1 
         if epochs_without_improvement>=config["patience"]:
+            print("patience reached in epoch", epoch)
             return best_model_state, best_conll,best_lea,best_pd_lea
 
 
@@ -128,7 +110,6 @@ if __name__ == '__main__':
     mention_type = args.mention_type
     job_id = args.job_id
 
-    additional_sampling = False
     special_tokens = ["E"]
 
     end_start_special_tokens = []
@@ -143,18 +124,42 @@ if __name__ == '__main__':
     num_values = 7 
     intermediate_values = np.logspace(np.log10(lr_start_value), np.log10(lr_end_value), num=num_values)
 
-    #Fix test dataset
-    language_model = "bart-large"
+    #Fix test dataset and params that depend on mention type
+    if mention_type=="event":
+        language_model = "bart-large"
+        margin_intermediate_values = [0.25,0.3,0.35,0.4,0.45,0.5,0.55]
+        additional_sampling = False
+        max_epochs=100
+        patience=13
+        batch_size=32
+    
+    elif mention_type=="entity":
+        language_model="roberta-large"
+        margin_intermediate_values = [0.55,0.60,0.65,0.7,0.75,0.80,0.85]
+        additional_sampling = True
+        max_epochs=50
+        patience=7
+        batch_size=64
+    
     tokenizer = create_tokenizer(language_model,end_start_special_tokens)
-    # ECB+ test
-    cl_cdcr_dataset = CL_Dataset(name="ecb_test",data_paths=['../CDCR/data/ECBplus-prep/output_data/test'],context_method='hsu',
+    # Create datasets
+    context_method = 'hsu'
+    cl_cdcr_train = CL_Dataset(name="ecb_train",data_paths=['../CDCR/data/ECBplus-prep/output_data/train'],context_method=context_method,
+                        mention_type=mention_type,tokenizer=tokenizer, special_mention_tokens=end_start_special_tokens,mode="train",
+                        additional_sampling=additional_sampling) 
+
+    cl_cdcr_val = CL_Dataset(name="ecb_val",data_paths=['../CDCR/data/ECBplus-prep/output_data/val'],context_method=context_method,
+                    mention_type=mention_type,tokenizer=tokenizer, special_mention_tokens=end_start_special_tokens,mode="inference") 
+    
+
+    cl_cdcr_dataset = CL_Dataset(name="ecb_test",data_paths=['../CDCR/data/ECBplus-prep/output_data/test'],context_method=context_method,
         mention_type=mention_type,tokenizer=tokenizer, special_mention_tokens=end_start_special_tokens,mode="inference") 
     
     while True: #Start tuning
         #Choosing hyperparameters randomly
         
         learning_rate = random.choices(intermediate_values, k=1)[0]
-        margin = random.choices([0.25,0.3,0.35,0.4,0.45,0.5,0.55], k=1)[0]
+        margin = random.choices(margin_intermediate_values, k=1)[0]
         #Batch size: try 64 and 128. Initially 128
         threshold = random.choices([0.10,0.15,0.20,0.25,0.30], k=1)[0]
 
@@ -184,34 +189,29 @@ if __name__ == '__main__':
             continue
 
         # Check if the file is not writen yet
+
         config = {
             #constant
-            "data_setup":0,
-            "context_method": 'hsu',
-            "mention_type" : "event",
             "language_model_name" : language_model, #Prob distribution for language models
-            "special_tokens": special_tokens,
-            "additional_sampling" : additional_sampling,
             "val_batch_size":256,
             #Variables
             "learning_rate": learning_rate, 
             "margin":margin,
-            "train_batch_size":128, # For now
+            "train_batch_size":batch_size, # For now
             "clustering_threshold":threshold,
-            "max_epochs":100,
-            "patience":13
+            "max_epochs":max_epochs,
+            "optimization_metric":"pd_lea",
+            "patience":patience
         }
         #train with current setup
 
         #send model
-        
-        best_model_state,best_conll,best_lea,best_pd_lea = train_hyperparam_tuning(config)
+        best_model_state,best_conll,best_lea,best_pd_lea = train_hyperparam_tuning(config,cl_cdcr_train=cl_cdcr_train,cl_cdcr_val=cl_cdcr_val,tokenizer=tokenizer)
 
         #Predict on ECB+ test
         dataloader = create_data_loader(cl_cdcr=cl_cdcr_dataset,batch_size=256)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        #Would the test model not be the same as the last that was stored? I should pass it as parameter!!
         test_model = create_siamese_model(language_model,tokenizer)
         test_model.load_state_dict(best_model_state)
         test_model.to(device)
@@ -223,8 +223,9 @@ if __name__ == '__main__':
         pd_lea_test = df_metrics_test.loc["pd_lea","F1"]
         
         df_current = pd.DataFrame({"mention_type":mention_type,"learning_rate":learning_rate,"language_model":language_model,
-                                   "margin":margin,"threshold":threshold,"dev_conll":best_conll,"dev_lea":best_lea,
-                                   "dev_pd_lea":best_pd_lea,"test_conll":conll_test,"test_lea":lea_test,"test_pd_lea":pd_lea_test,"job_id":job_id},index=[0])
+                                   "margin":margin,"threshold":threshold,"dev_conll":round(best_conll,3),"dev_lea":round(best_lea,3),
+                                   "dev_pd_lea":round(best_pd_lea,3),"test_conll":round(conll_test,3),"test_lea":round(lea_test,3),
+                                   "test_pd_lea":round(pd_lea_test,3),"job_id":job_id},index=[0])
         
 
         #complete data from the initial input:

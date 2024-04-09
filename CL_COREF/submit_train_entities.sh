@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -A nimcdcr2
 #SBATCH --job-name=train-cross-encoder-gpu
-#SBATCH -t 12:40:00                  # estimated time # TODO: adapt to your needs
+#SBATCH -t 23:00:00                  # estimated time # TODO: adapt to your needs
 #SBATCH -p grete:shared              # the partition you are training on (i.e., which nodes), for nodes see sinfo -p grete:shared --format=%N,%G
 #SBATCH -G A100:1                   # take 1 GPU, see https://www.hlrn.de/doc/display/PUB/GPU+Usage for more options
 #SBATCH --mem-per-gpu=30G             # setting the right constraints for the splitted gpu partitions
@@ -42,11 +42,13 @@ nvcc -V
 
 #Common arguments
 MENTION_TYPE=entity
-TRAIN_BATCH_SIZE=16
-NUM_EPOCHS=13
-MARGIN=0.7
+TRAIN_BATCH_SIZE=64
+NUM_EPOCHS=50
+MARGIN=0.8
 THRESHOLD=0.2
-DATA_SETUP=0
+LEARNING_RATE=2e-6
+DATA_SETUP=2
+METRIC=pd_lea
 LANGUAGE_MODEL=roberta-large
 #LANGUAGE_MODEL=deberta-large
 #LANGUAGE_MODEL=bart-large
@@ -56,9 +58,9 @@ LANGUAGE_MODEL=roberta-large
 #LANGUAGE_MODEL=da-roberta-large
 # LANGUAGE_MODEL=roberta-allen-dapt5000
 
-python -u train.py --job_id=${SLURM_JOB_ID} --mention_type ${MENTION_TYPE} --train_batch_size ${TRAIN_BATCH_SIZE} --val_batch_size 256 --num_epochs ${NUM_EPOCHS} --margin ${MARGIN} --clustering_threshold ${THRESHOLD} --data_setup ${DATA_SETUP} --language_model "${LANGUAGE_MODEL}" --additional_sampling
+python -u train.py --job_id=${SLURM_JOB_ID} --mention_type ${MENTION_TYPE} --train_batch_size ${TRAIN_BATCH_SIZE} --val_batch_size 256 --num_epochs ${NUM_EPOCHS} --margin ${MARGIN} --clustering_threshold ${THRESHOLD} --data_setup ${DATA_SETUP} --language_model "${LANGUAGE_MODEL}" --learning_rate ${LEARNING_RATE} --metric "${METRIC}" --additional_sampling 
 #Prediction after model training
-MODEL_PATH=models/${MENTION_TYPE}/${LANGUAGE_MODEL}/tokens_E/siamese_model_batch_${TRAIN_BATCH_SIZE}_epochs_${NUM_EPOCHS}_margin_${MARGIN}_threshold_${THRESHOLD}_threshold_${DATA_SETUP}.pth
+MODEL_PATH=models/${MENTION_TYPE}/${LANGUAGE_MODEL}/tokens_E/siamese_model_batch_${TRAIN_BATCH_SIZE}_epochs_${NUM_EPOCHS}_margin_${MARGIN}_threshold_${THRESHOLD}_setup_${DATA_SETUP}.pth
 
 echo "Model path: ${MODEL_PATH}"
 python -u predict.py --model_path ${MODEL_PATH}

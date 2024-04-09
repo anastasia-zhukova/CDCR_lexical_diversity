@@ -70,7 +70,7 @@ def create_doc_lines(dataset_name,predictions_df,column_name):
     inner_list = []
     for _,row in predictions_df.iterrows():
 
-        inner_list.append(f"{dataset_name}\t{row['mention_id']}\t({row[column_name]})" + "\n")
+        inner_list.append(f"{dataset_name}\t{row['mention_id']}\t{row['coref_chain']}\t({row[column_name]})" + "\n")
 
 
     conll_dict[dict_key].append(inner_list)
@@ -151,7 +151,7 @@ def compute_cdcr_metrics(cdcr_dataset_name,predictions_df,metrics="all",NP_only=
 
     evaluation_results = []
     for name, metric in metrics:
-        recall, precision, f1 = evaluator.evaluate_documents(doc_coref_infos,dict_phrasing_diversity,metric,beta=1)
+        recall, precision, f1 = evaluator.evaluate_documents(doc_coref_infos,dict_phrasing_diversity,metric,dataset_name=cdcr_dataset_name,beta=1)
         
         evaluation_results.append({
             'Metric': name,

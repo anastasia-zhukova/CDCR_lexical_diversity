@@ -38,7 +38,7 @@ def evaluate_non_referrings(doc_non_referring_infos):
 
 
 class Evaluator:
-    def __init__(self, metric,dataset_name, beta=1, keep_aggregated_values=False,):
+    def __init__(self, metric,dataset_name,mention_type, beta=1, keep_aggregated_values=False,):
         self.p_num = 0
         self.p_den = 0
         self.r_num = 0
@@ -47,6 +47,8 @@ class Evaluator:
         self.beta = beta
         self.keep_aggregated_values = keep_aggregated_values
         self.dataset_name=dataset_name
+        self.mention_type = mention_type
+        
 
         if keep_aggregated_values:
             self.aggregated_p_num = []
@@ -71,9 +73,10 @@ class Evaluator:
             rn, rd,gold_clusters_pd_df = self.metric(key_clusters, sys_clusters,
                     key_mention_sys_cluster,dict_phrasing_diversity,"gold")
 
-            combined_df = gold_clusters_pd_df.merge(predicted_clusters_pd_df, on='mention_id',how='left')
-            combined_df['df'] = self.dataset_name
-            combined_df[['df','mention_id','coref_chain','gold_label','pd_gold','predicted_label','pd_predicted']].to_csv(f'predictions/clusters_{self.dataset_name}.csv',index=False,sep=';',decimal=',')
+            clusters_df = gold_clusters_pd_df.merge(predicted_clusters_pd_df, on='mention_id',how='left')
+            clusters_df['df'] = self.dataset_name
+            clusters_df[['df','mention_id','coref_chain','gold_label','pd_gold','predicted_label','pd_predicted']].to_csv(f'predictions/clusters_{self.mention_type}_{self.dataset_name}.csv',index=False,sep=';',decimal=',')
+            
         else:
             pn, pd = self.metric(sys_clusters, sys_mention_key_cluster)
             rn, rd = self.metric(key_clusters, key_mention_sys_cluster)
@@ -112,8 +115,8 @@ class Evaluator:
                 self.aggregated_r_num, self.aggregated_r_den)
 
 
-def evaluate_documents(doc_coref_infos,dict_phrasing_diversity, metric,dataset_name, beta=1):
-    evaluator = Evaluator(metric,dataset_name, beta=beta)
+def evaluate_documents(doc_coref_infos,dict_phrasing_diversity, metric,dataset_name,mention_type, beta=1):
+    evaluator = Evaluator(metric,dataset_name,mention_type, beta=beta)
     for doc_id in doc_coref_infos:
         evaluator.update(doc_coref_infos[doc_id],dict_phrasing_diversity)
     return (evaluator.get_recall(), evaluator.get_precision(),

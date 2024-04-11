@@ -133,8 +133,8 @@ def get_coref_infos(dataset_name, predictions_df,
 
     return doc_coref_infos
 
-def compute_cdcr_metrics(cdcr_dataset_name,predictions_df,metrics="all",NP_only=False, 
-                         remove_nested=False, without_singletons=False, min_span=False):
+def compute_cdcr_metrics(cdcr_dataset_name,predictions_df,mention_type,metrics="all",NP_only=False, 
+                         remove_nested=False, without_singletons=False, min_span=False,):
     
     keep_singletons = True
     if without_singletons:
@@ -151,7 +151,7 @@ def compute_cdcr_metrics(cdcr_dataset_name,predictions_df,metrics="all",NP_only=
 
     evaluation_results = []
     for name, metric in metrics:
-        recall, precision, f1 = evaluator.evaluate_documents(doc_coref_infos,dict_phrasing_diversity,metric,dataset_name=cdcr_dataset_name,beta=1)
+        recall, precision, f1 = evaluator.evaluate_documents(doc_coref_infos,dict_phrasing_diversity,metric,dataset_name=cdcr_dataset_name,mention_type= mention_type,beta=1)
         
         evaluation_results.append({
             'Metric': name,
@@ -170,6 +170,6 @@ def predict_and_evaluate(dataloader,device,model,cl_cdcr_dataset,metrics="all",w
     dict_embeddings_by_topic=return_embeddings_by_topic(dict_embeddings_by_mention=dict_embeddings_by_mention,mentions=cdcr_dataset.mentions)
     predicted_clusters_df = predict_clusters(dict_embeddings_by_topic,clustering_threshold)
     merged_df = cdcr_dataset.gold_clusters_df.merge(predicted_clusters_df,how="inner", on="mention_id")
-    df_metrics = compute_cdcr_metrics(cdcr_dataset_name=cdcr_dataset.name,predictions_df=merged_df,metrics=metrics,without_singletons=without_singletons)
+    df_metrics = compute_cdcr_metrics(cdcr_dataset_name=cdcr_dataset.name,predictions_df=merged_df,metrics=metrics,without_singletons=without_singletons,mention_type=cl_cdcr_dataset.mention_type)
     print(f' eval conll: {round(df_metrics.loc["conll","F1"],2)},eval lea: {round(df_metrics.loc["lea","F1"],2)},eval pd_lea: {round(df_metrics.loc["pd_lea","F1"],2)}')
     return df_metrics, merged_df

@@ -165,6 +165,7 @@ def compute_cdcr_metrics(cdcr_dataset_name,predictions_df,mention_type,metrics="
     return df_metrics
 
 def predict_and_evaluate(dataloader,device,model,cl_cdcr_dataset,metrics="all",without_singletons=False,clustering_threshold=0.2):
+    print("clustering threshold",clustering_threshold)
     cdcr_dataset=cl_cdcr_dataset.cdcr_dataset
     dict_embeddings_by_mention = create_embeddings_by_mention(dataloader=dataloader,device=device,model=model,cl_dataset_keys_list=cl_cdcr_dataset.keys_list)
     dict_embeddings_by_topic=return_embeddings_by_topic(dict_embeddings_by_mention=dict_embeddings_by_mention,mentions=cdcr_dataset.mentions)

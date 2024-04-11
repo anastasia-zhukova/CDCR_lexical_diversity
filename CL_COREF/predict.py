@@ -28,6 +28,8 @@ if __name__ == '__main__':
     mention_type=model_path_split[1] 
     language_model_name = model_path_split[2]
     special_tokens = model_path_split[3].split("_")[1:]
+    model_name = model_path_split[4] 
+    threshold = float(model_name.split("_")[-2])
     
     print(f'extracted language model name from path {language_model_name}')
     end_start_special_tokens = []
@@ -72,7 +74,7 @@ if __name__ == '__main__':
             continue
 
         dataloader = create_data_loader(cl_cdcr=cl_cdcr_dataset,batch_size=test_batch_size)
-        df_metrics, df_prediction = predict_and_evaluate(dataloader=dataloader,device=device,model=model,cl_cdcr_dataset=cl_cdcr_dataset,metrics="all",without_singletons=without_singletons)
+        df_metrics, df_prediction = predict_and_evaluate(dataloader=dataloader,device=device,model=model,cl_cdcr_dataset=cl_cdcr_dataset,metrics="all",without_singletons=without_singletons,clustering_threshold=threshold)
         print(f"{dataset_name} results",df_metrics)
         print("--------------------")
         print(f"{dataset_name} test results: CoNLL F1/ LEA F1 / PD_LEA F1 {round(df_metrics.loc['conll','F1'],2)}/{round(df_metrics.loc['lea','F1'],2)}/{round(df_metrics.loc['pd_lea','F1'],2)}")

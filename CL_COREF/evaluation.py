@@ -1,5 +1,6 @@
 import pandas as pd
 from sklearn.cluster import AgglomerativeClustering
+import time
 import torch
 import torch.nn.functional as F
 
@@ -44,13 +45,24 @@ def predict_clusters(dict_embeddings_by_topic,clustering_threshold=0.2):
     for topic, dict_topic in dict_embeddings_by_topic.items():
         list_of_embeddings = list(dict_topic.values())
         #Computes pairwise cosine similarity
+        print("Number of mentions:",len(list_of_embeddings), "for topic",topic)
+        start_time = time.time()
+
         distances = torch.tensor([[1 - F.cosine_similarity(vec1, vec2, dim=0).item() for vec2 in list_of_embeddings] for vec1 in list_of_embeddings])
+        end_time = time.time()
+        # Measure execution time
+        execution_time = end_time - start_time
+        print("Pairwise distance computation Execution time:", execution_time)
 
         #Clustering
+        start_time = time.time()
         clustering = AgglomerativeClustering(n_clusters=None, metric='precomputed', linkage='average',
                                                 distance_threshold=clustering_threshold)
+
         #Implement CoNLL score with this fit and save as Dataframe
         adjusted_predicted_label = clustering.fit_predict(distances) + max_predicted_cluster_value #Ensure no label overlap when moving to another topic
+        end_time = time.time()
+        print("Agglomerative clustering execution time:", execution_time)
         predicted_df_by_topic = pd.DataFrame({"mention_id":list(dict_topic.keys()),
                                               "predicted_cluster":adjusted_predicted_label,"topic_id":[topic]*len(dict_topic)})
         predicted_clusters_df_list.append(predicted_df_by_topic)

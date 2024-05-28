@@ -41,7 +41,10 @@ python -m torch.utils.collect_env
 nvcc -V
 
 # Run the script:
-python -u predict.py --model_path models/event/roberta-large/tokens_E/siamese_model_batch_16_epochs_100_margin_0.4_threshold_0.2_setup_0.pth --without_singletons --export_predictions
+# Best event model (Bart w/ hyperparameter tuning) without singletons
+python -u predict.py --model_path models/event/bart-large/tokens_E/siamese_model_batch_32_epochs_100_margin_0.3_threshold_0.2_setup_0.pth --without_singletons --export_predictions 
+#Original parameters RoBERTa
+#python -u predict.py --model_path models/event/roberta-large/tokens_E/siamese_model_batch_16_epochs_100_margin_0.4_threshold_0.2_setup_0.pth --without_singletons --export_predictions
 
 # Run the script with logger:
 #python -u train_with_logger.py -l ~/${SLURM_JOB_NAME}_${SLURM_JOB_ID}  -t True -p True -d True -s True -f True

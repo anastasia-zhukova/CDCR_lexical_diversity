@@ -1,3 +1,5 @@
+import faiss
+import numpy as np
 import pandas as pd
 from sklearn.cluster import AgglomerativeClustering
 import time
@@ -38,39 +40,61 @@ def return_embeddings_by_topic(dict_embeddings_by_mention,mentions):
             dict_embeddings_by_topic[topic_id_temp] = {mention_key: embedding}
     return dict_embeddings_by_topic
 
-def predict_clusters(dict_embeddings_by_topic,clustering_threshold=0.2):
+def predict_clusters(dict_embeddings_by_topic, clustering_threshold=0.2):
     predicted_clusters_df_list = []
     max_predicted_cluster_value = 0
 
     for topic, dict_topic in dict_embeddings_by_topic.items():
         list_of_embeddings = list(dict_topic.values())
-        #Computes pairwise cosine similarity
-        print("Number of mentions:",len(list_of_embeddings), "for topic",topic)
-        start_time = time.time()
+        num_mentions = len(list_of_embeddings)
+        print("Number of mentions:", num_mentions, "for topic", topic)
+        
+        if num_mentions == 0:
+            continue
 
-        distances = torch.tensor([[1 - F.cosine_similarity(vec1, vec2, dim=0).item() for vec2 in list_of_embeddings] for vec1 in list_of_embeddings])
+        # Convert list of embeddings to a numpy array
+        embeddings_np = np.array([tensor.cpu().numpy() for tensor in list_of_embeddings], dtype=np.float32)
+        
+
+        index = faiss.index_factory(embeddings_np.shape[1], "Flat", faiss.METRIC_INNER_PRODUCT)
+        faiss.normalize_L2(embeddings_np)
+        index.add(embeddings_np)
+        # Measure time for pairwise cosine similarity computation
+        start_time = time.time()
+        D, I = index.search(embeddings_np, num_mentions)
+        # Initialize a new distance matrix to hold the reordered distances
+        reordered_distances = np.zeros_like(D)
+        rows = np.arange(num_mentions)[:, np.newaxis]
+        reordered_distances[rows, I] = D
+
+        # Compute cosine distances
+        distances = 1 - reordered_distances
+
         end_time = time.time()
-        # Measure execution time
         execution_time = end_time - start_time
         print("Pairwise distance computation Execution time:", execution_time)
 
-        #Clustering
+        # Clustering
         start_time = time.time()
         clustering = AgglomerativeClustering(n_clusters=None, metric='precomputed', linkage='average',
-                                                distance_threshold=clustering_threshold)
-
-        #Implement CoNLL score with this fit and save as Dataframe
-        adjusted_predicted_label = clustering.fit_predict(distances) + max_predicted_cluster_value #Ensure no label overlap when moving to another topic
+                                             distance_threshold=clustering_threshold)
+        
+        # Implement CoNLL score with this fit and save as Dataframe
+        adjusted_predicted_label = clustering.fit_predict(distances) + max_predicted_cluster_value  # Ensure no label overlap when moving to another topic
         end_time = time.time()
+        execution_time = end_time - start_time
         print("Agglomerative clustering execution time:", execution_time)
-        predicted_df_by_topic = pd.DataFrame({"mention_id":list(dict_topic.keys()),
-                                              "predicted_cluster":adjusted_predicted_label,"topic_id":[topic]*len(dict_topic)})
+
+        predicted_df_by_topic = pd.DataFrame({"mention_id": list(dict_topic.keys()),
+                                              "predicted_cluster": adjusted_predicted_label, 
+                                              "topic_id": [topic] * len(dict_topic)})
         predicted_clusters_df_list.append(predicted_df_by_topic)
 
-        max_predicted_cluster_value = max(adjusted_predicted_label) +1
+        max_predicted_cluster_value = max(adjusted_predicted_label) + 1
 
     predicted_clusters_df = pd.concat(predicted_clusters_df_list)
     return predicted_clusters_df
+
 
 ### 
 # Compute CoNLL Score

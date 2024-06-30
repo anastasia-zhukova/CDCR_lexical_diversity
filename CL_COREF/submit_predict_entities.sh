@@ -41,7 +41,12 @@ python -m torch.utils.collect_env
 nvcc -V
 
 # Run the script:
-python -u predict.py --model_path models/entity/roberta-large/tokens_E/siamese_model_batch_64_epochs_50_margin_0.8_threshold_0.2_setup_2.pth
+# alternative RoBERTa (Hyperparameter tuned not chosen) without events
+# python -u predict.py --model_path models/entity/roberta-large/tokens_E/siamese_model_batch_64_epochs_50_margin_0.55_threshold_0.1_setup_0.pth --without_singletons --export_predictions 
+# Best RoBERTa (Hyperparameter tuned + fine'tuned NP4E) without events
+python -u predict.py --model_path models/entity/roberta-large/tokens_E/siamese_model_batch_64_epochs_50_margin_0.8_threshold_0.2_setup_2.pth --without_singletons --export_predictions 
+#Original RoBERTa
+#python -u predict.py --model_path models/entity/roberta-large/tokens_E/siamese_model_batch_64_epochs_50_margin_0.8_threshold_0.2_setup_2.pth
 
 # Run the script with logger:
 #python -u train_with_logger.py -l ~/${SLURM_JOB_NAME}_${SLURM_JOB_ID}  -t True -p True -d True -s True -f True

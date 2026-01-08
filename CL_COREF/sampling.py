@@ -83,34 +83,18 @@ def create_mention_pairs(dict_sentences_pairs_similarity,mentions, mention_pairs
     dict_positive_pairs_by_topic = defaultdict(dict)
     dict_negative_pairs_by_topic = defaultdict(dict)
 
-    temp_dataset = []
     for topic, sentence_pairs in dict_sentences_pairs_similarity.items():
-        #Compute similarity of all the mentions of the same topic    
-        # dict_mention_tokens = {key:mention.tokens_str for key,mention in mentions.items() if key in mention_keys_by_topic_in_type[topic]}
-        # list_of_keys,cosine_scores, _ = encode_sentences(dict_mention_tokens)
-   
         topic_sentence_similarity_median = statistics.median(list(sentence_pairs.values()))
         for (sentence_key1, sentence_key2), sentence_similarity_score in sentence_pairs.items():
-            key_pair = (sentence_key1, sentence_key2) 
+            key_pair = (sentence_key1, sentence_key2)
             for mention_key1, mention_key2 in mention_pairs_by_pair[key_pair]:
-
-                # index_key_mention1 = list_of_keys.index(mention_key1)
-                # index_key_mention2 = list_of_keys.index(mention_key2)
-                # mention_pair_score = round(cosine_scores[index_key_mention1, index_key_mention2].item(), 3)
                 same_coref_chain = mentions[mention_key1].coref_chain == mentions[mention_key2].coref_chain
-                new_dict_entry = {(mention_key1,mention_key2):sentence_similarity_score} #I can have sentence similarity score and mention similarity score.
+                new_dict_entry = {(mention_key1,mention_key2):sentence_similarity_score}
 
                 if same_coref_chain:
                     dict_positive_pairs_by_topic[topic].update(new_dict_entry)
-                    # temp_dict_entry = {"topic":topic,"sentence1":sentence_key1,"sentence2":sentence_key2,"sentence_similarity":sentence_similarity_score,
-                    #                    "mention1":mention_key1,"mention2":mention_key2,"mention_similarity":mention_pair_score,"coref":1}
-                    #add to temp dataset
                 else:
                     dict_negative_pairs_by_topic[topic].update(new_dict_entry)
-                    # temp_dict_entry = {"topic":topic,"sentence1":sentence_key1,"sentence2":sentence_key2,"sentence_similarity":sentence_similarity_score,
-                    # "mention1":mention_key1,"mention2":mention_key2,"mention_similarity":mention_pair_score,"coref":0}
-                
-                #temp_dataset.append(temp_dict_entry)
 
             
         ## Subsampling

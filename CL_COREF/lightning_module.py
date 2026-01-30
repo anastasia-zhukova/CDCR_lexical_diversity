@@ -1,7 +1,7 @@
 import torch
 import lightning as L
-from .model import create_siamese_model, CustomContrastiveLoss, create_optimizer
-from .evaluation import predict_and_evaluate
+from model import create_siamese_model, CustomContrastiveLoss, create_optimizer
+from evaluation import predict_and_evaluate
 
 class CorefLightningModule(L.LightningModule):
     def __init__(self, config: dict, tokenizer):
@@ -67,7 +67,7 @@ class CorefLightningModule(L.LightningModule):
             dict_embeddings_by_mention[key] = emb.to(self.device)
 
         # Call the existing evaluation logic
-        from .evaluation import return_embeddings_by_topic, predict_clusters, compute_cdcr_metrics
+        from evaluation import return_embeddings_by_topic, predict_clusters, compute_cdcr_metrics
         
         cdcr_dataset = val_dataset.cdcr_dataset
         dict_embeddings_by_topic = return_embeddings_by_topic(dict_embeddings_by_mention, cdcr_dataset.mentions)

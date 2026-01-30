@@ -1,9 +1,9 @@
 import os
 import lightning as L
 from torch.utils.data import DataLoader
-from .dataset import CL_Dataset
-from .dataloader import create_data_loader
-from .model import create_tokenizer
+from dataset import CL_Dataset
+from dataloader import create_data_loader
+from model import create_tokenizer
 
 class CorefDataModule(L.LightningDataModule):
     def __init__(self, config: dict):

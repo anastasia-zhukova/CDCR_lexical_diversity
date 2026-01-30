@@ -25,5 +25,5 @@ training:
   metric: "conll"
 
 paths:
-  base_data_path: "../CDCR/data"
+  base_data_path: "data"
   models_dir: "models"

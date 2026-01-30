@@ -31,30 +31,30 @@ class CorefDataModule(L.LightningDataModule):
             )
 
         base_data_path = os.path.abspath(self.paths_config["base_data_path"])
-        
+
         # Setup data paths based on data_setup
         if self.data_config["data_setup"] == 0:
-            train_paths = [os.path.join(base_data_path, "ECBplus-prep", "output_data", 'train')]
-            val_paths = [os.path.join(base_data_path, "ECBplus-prep", "output_data", 'val')]
+            train_paths = [os.path.join(base_data_path, "ECBplus", 'train')]
+            val_paths = [os.path.join(base_data_path, "ECBplus", 'val')]
             train_name, val_name = "ecbplus_train", "ecbplus_val"
         elif self.data_config["data_setup"] == 1:
             train_paths = [
-                os.path.join(base_data_path, "ECBplus-prep", "output_data", 'train'),
-                os.path.join(base_data_path, "FCC-prep", "output_data_FCC-T", 'train')
+                os.path.join(base_data_path, "ECBplus", 'train'),
+                os.path.join(base_data_path, "FCC", 'train')
             ]
             val_paths = [
-                os.path.join(base_data_path, "ECBplus-prep", "output_data", 'val'),
-                os.path.join(base_data_path, "FCC-prep", "output_data_FCC-T", 'val')
+                os.path.join(base_data_path, "ECBplus", 'val'),
+                os.path.join(base_data_path, "FCC", 'val')
             ]
             train_name, val_name = "ecbplus_fcc_train", "ecbplus_fcc_val"
         elif self.data_config["data_setup"] == 2:
             train_paths = [
-                os.path.join(base_data_path, "ECBplus-prep", "output_data", 'train'),
-                os.path.join(base_data_path, "NP4E-prep", "output_data", 'train')
+                os.path.join(base_data_path, "ECBplus", 'train'),
+                os.path.join(base_data_path, "NP4E", 'train')
             ]
             val_paths = [
-                os.path.join(base_data_path, "ECBplus-prep", "output_data", 'val'),
-                os.path.join(base_data_path, "NP4E-prep", "output_data", 'val')
+                os.path.join(base_data_path, "ECBplus", 'val'),
+                os.path.join(base_data_path, "NP4E", 'val')
             ]
             train_name, val_name = "ecbplus_np4e_train", "ecbplus_np4e_val"
         else:

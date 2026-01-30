@@ -1,7 +1,0 @@
-name: mbib
-channels:
-  - defaults
-dependencies:
-  - python=3.8
-  - ipykernel
-prefix: C:\Users\Sergio\miniconda3\envs\mbib

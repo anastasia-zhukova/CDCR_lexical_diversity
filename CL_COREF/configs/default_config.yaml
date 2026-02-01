@@ -18,7 +18,7 @@ model:
   mlp_hidden_dim: 1024
 
 training:
-  num_epochs: 5
+  num_epochs: 1
   precision: "16-mixed"
   accelerator: "auto"
   devices: "auto"

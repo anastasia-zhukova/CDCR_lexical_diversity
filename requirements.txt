@@ -16,3 +16,4 @@ tensorboard==2.20.0
 torch==2.10.0
 tqdm==4.67.1
 transformers==5.0.0
+wandb==0.24.1

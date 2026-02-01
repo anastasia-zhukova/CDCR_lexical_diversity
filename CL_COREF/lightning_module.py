@@ -80,10 +80,16 @@ class CorefLightningModule(L.LightningModule):
             metrics="all",
             mention_type=val_dataset.mention_type
         )
-        
+
         f1_conll = df_metrics.loc["conll", "F1"]
         self.log("val_f1_conll", f1_conll, prog_bar=True)
-        
+
+        # Log all metrics to wandb
+        for metric_name in df_metrics.index:
+            self.log(f"val_{metric_name}_f1", df_metrics.loc[metric_name, "F1"], prog_bar=False)
+            self.log(f"val_{metric_name}_precision", df_metrics.loc[metric_name, "Precision"], prog_bar=False)
+            self.log(f"val_{metric_name}_recall", df_metrics.loc[metric_name, "Recall"], prog_bar=False)
+
         print(f"Validation F1 CoNLL: {f1_conll:.2f}")
         
         # Clear outputs for next epoch

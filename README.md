@@ -25,6 +25,30 @@ For paraphrase identification, we import the MRPC dataset from the transformers 
 
 ## 3. Training
 
+  screen -S training                                                                                                                            
+  python train. py     
+
+    Detach from the session (leave training running):                                                                                             
+  Press Ctrl+A then D                                          
+
+  Check on training later:                                                                                                                      
+  screen -r training 
+
+    This reattaches to your session and shows live output.                                                                                        
+                                                                                                                                                
+  See all active screen sessions:                                                                                                               
+  screen -ls                                                                                                                                    
+                                                                                                                                                
+  Common screen commands (while inside a session):                                                                                              
+  - Ctrl+A then D - Detach and leave running                                                                                                    
+  - Ctrl+A then C - Create new window within session                                                                                            
+  - Ctrl+A then N - Next window                                                                                                                 
+  - Ctrl+A then P - Previous window                                                                                                             
+  - Ctrl+A then ? - Help                                                                                                                        
+                                                                                                                                                
+  Kill the session when done:                                                                                                                   
+  screen -X -S training quit                                                                                       
+
 We used 2 sampling strategies to train the multi-task learning model:
 
 1. Sequential sampling: Batches contain data only from one dataset at a time. The likelihood of a batch having data of each dataset is proportional to its size.

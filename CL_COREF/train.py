@@ -3,7 +3,8 @@ import argparse
 import os
 import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint
-from lightning.pytorch.loggers import TensorBoardLogger
+from lightning.pytorch.loggers import TensorBoardLogger, WandbLogger
+import wandb
 
 from datamodule import CorefDataModule
 from lightning_module import CorefLightningModule
@@ -36,7 +37,15 @@ def main(args):
     model = CorefLightningModule(config, datamodule.tokenizer)
 
     # Logging and Checkpointing
-    logger = TensorBoardLogger("logs", name=f"{config['data']['mention_type']}_{config['model']['language_model']}")
+    tb_logger = TensorBoardLogger("logs", name=f"{config['data']['mention_type']}_{config['model']['language_model']}")
+
+    # Initialize Weights & Biases logger
+    wandb_logger = WandbLogger(
+        project="cdcr-lexical-diversity",
+        name=f"{config['data']['mention_type']}_{config['model']['language_model']}_setup{config['data']['data_setup']}",
+        config=config,
+        log_model=False
+    )
     
     # Model path logic similar to old train.py
     out_dir = os.path.join(
@@ -61,13 +70,16 @@ def main(args):
         precision=config["training"]["precision"],
         accelerator=config["training"]["accelerator"],
         devices=config["training"]["devices"],
-        logger=logger,
+        logger=[tb_logger, wandb_logger],
         callbacks=[checkpoint_callback],
         gradient_clip_val=1.0 # From old train.py clip_grad_norm_
     )
 
     # Start training
     trainer.fit(model, datamodule=datamodule)
+
+    # Finish wandb run
+    wandb.finish()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train CL_COREF with PyTorch Lightning")

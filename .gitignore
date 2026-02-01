@@ -31,3 +31,4 @@ MTL/PGKPR/**/*.json
 MBIB-main
 CL_COREF/data
 CL_COREF/logs
+CL_COREF/wandb

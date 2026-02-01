@@ -137,7 +137,7 @@ def create_mention_pairs(dict_sentences_pairs_similarity,mentions, mention_pairs
 def return_pairs_and_labels(cdcr_dataset, mention_type, additional_sampling):
     #TODO lift restriction on ECB topic 34 once the dataset is updated
     sentences_by_topic = cdcr_dataset.sentences_by_topic
-    sentences_by_topic.pop('ECBplus-34',None)
+    #sentences_by_topic.pop('ECBplus-34',None)
     
     sentences_pairs_similarity_dict,dict_mentions_by_topic_in_type,dict_mention_pairs_by_pair = sentences_processing(sentences_by_topic,
                                                                                cdcr_dataset.mentions_by_sentence,

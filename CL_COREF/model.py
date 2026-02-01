@@ -190,11 +190,14 @@ def create_optimizer(learning_rate,model):
     if isinstance(model, torch.nn.DataParallel):
         model = model.module
 
+    # Ensure learning_rate is a float
+    learning_rate = float(learning_rate)
+
     #Create optimizer
     optimizer_params = [
     {'params': model.language_model.parameters(), 'lr': learning_rate},
     {'params': model.mlp_cls_embed.parameters(), 'lr': learning_rate},
     {'params': model.mlp_mention_embed.parameters(), 'lr': learning_rate},
 ]
-    optimizer = torch.optim.AdamW(optimizer_params)
+    optimizer = torch.optim.AdamW(optimizer_params, weight_decay=0.0)
     return optimizer

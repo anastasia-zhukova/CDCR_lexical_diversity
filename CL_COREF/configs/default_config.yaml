@@ -4,7 +4,7 @@ data:
   mention_type: "event"
   context_method: "hsu"
   special_tokens: ["E"]
-  train_batch_size: 32
+  train_batch_size: 16
   val_batch_size: 64
   data_setup: 0 # 0: ecbplus, 1: ecbplus_fcc, 2: ecbplus_np4e
   additional_sampling: false

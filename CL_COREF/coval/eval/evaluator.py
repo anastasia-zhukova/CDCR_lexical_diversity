@@ -5,6 +5,7 @@ from collections import Counter
 import numpy as np
 import pandas as pd
 from scipy.optimize import linear_sum_assignment
+import os
 
 
 def f1(p_num, p_den, r_num, r_den, beta=1):
@@ -75,6 +76,7 @@ class Evaluator:
 
             clusters_df = gold_clusters_pd_df.merge(predicted_clusters_pd_df, on='mention_id',how='left')
             clusters_df['df'] = self.dataset_name
+            os.makedirs('predictions', exist_ok=True)
             clusters_df[['df','mention_id','coref_chain','gold_label','pd_gold','predicted_label','pd_predicted']].to_csv(f'predictions/clusters_{self.mention_type}_{self.dataset_name}.csv',index=False,sep=';',decimal=',')
             
         else:
@@ -273,7 +275,7 @@ def pd_lea(input_clusters, output_clusters, mention_to_gold,dict_phrasing_divers
         phrasing_diversity = 0 #Default for singletons
         if len(c) == 1:
             #Add only mention with pd=0
-            mention_pd_dict[c[0].id]=0
+            mention_pd_dict[c[0].id]=[0, -1, c[0].coreference_chain]
             all_links = 1
             if c[0] in mention_to_gold and len(
                     output_clusters[mention_to_gold[c[0]]]) == 1:

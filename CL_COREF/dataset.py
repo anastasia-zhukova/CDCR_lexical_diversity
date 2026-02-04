@@ -262,16 +262,15 @@ class CDCR_Dataset:
 
 class CL_Dataset(Dataset):
 
-    def __init__(self, name, data_paths, context_method, mention_type, tokenizer,
+    def __init__(self, name, data_paths, context_method, tokenizer,
                  special_mention_tokens, mode="train",
                  additional_sampling=False, predicted_topics=False, sentence_transformer_model=None):
-        #I will tokenize all the sequences up-front
+        #tokenize all the sequences up-front
         from sampling import return_pairs_and_labels
         self.cdcr_dataset = CDCR_Dataset(name=name, data_path=data_paths, context_method=context_method,
                                          special_mention_tokens=special_mention_tokens, predicted_topics=predicted_topics)
 
         #Tokenize mentions
-        self.mention_type = mention_type
         self.tokenizer = tokenizer
         self.tokenized_mentions = self.tokenize_mentions()
         self.mode = mode
@@ -312,12 +311,11 @@ class CL_Dataset(Dataset):
 
         # Create a dictionary to store the tokens
         tokenized_dict = {}
-        #Tokenize mention representation with context
-        mention_keys = self.cdcr_dataset.mentions_by_type[self.mention_type].intersection(self.cdcr_dataset.mentions.keys())
+        #Tokenize mention representation with context - all mentions, regardless of type
+        mention_keys = list(self.cdcr_dataset.mentions.keys())
         if not mention_keys:
-            print(f"dataset {self.cdcr_dataset.name} has no mentions of type {self.mention_type}")
+            print(f"dataset {self.cdcr_dataset.name} has no mentions")
             return tokenized_dict
-        mention_keys = list(mention_keys)
         context_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[0]) for key in mention_keys]
         mention_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[1]) for key in mention_keys]
         #Remove linebreaks

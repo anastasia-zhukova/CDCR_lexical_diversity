@@ -78,7 +78,7 @@ class CorefLightningModule(L.LightningModule):
             cdcr_dataset_name=cdcr_dataset.name,
             predictions_df=merged_df,
             metrics="all",
-            mention_type=val_dataset.mention_type
+            mention_type="all"
         )
 
         f1_conll = df_metrics.loc["conll", "F1"]

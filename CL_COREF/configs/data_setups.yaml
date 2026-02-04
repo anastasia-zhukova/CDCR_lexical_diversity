@@ -1,0 +1,24 @@
+# Data setup configurations
+# Each setup defines datasets with their available splits
+
+0:
+  name: "ecbplus"
+  datasets:
+    - name: "ECBplus"
+      splits: ["train", "val"]
+
+1:
+  name: "ecbplus_fcc"
+  datasets:
+    - name: "ECBplus"
+      splits: ["train", "val"]
+    - name: "FCC"
+      splits: ["train", "val"]
+
+2:
+  name: "ecbplus_np4e"
+  datasets:
+    - name: "ECBplus"
+      splits: ["train", "val"]
+    - name: "NP4E"
+      splits: ["train", "val"]

@@ -5,12 +5,13 @@ import nltk
 from nltk.corpus import stopwords
 import os
 import pandas as pd
-import string       
+import string
 import sys
 import time
 from torch.utils.data import Dataset, Subset
 import traceback
 from typing import Dict, Any
+from sentence_transformers import SentenceTransformer
 
 from cluster_documents import return_mentions_with_predicted_topics
 nltk.download('stopwords')
@@ -114,7 +115,6 @@ class CDCR_Dataset:
         self.sentences = {}
         self.mentions_by_topic = defaultdict(list)
         self.mentions_by_sentence = defaultdict(set)
-        self.mentions_by_type = defaultdict(set)
         self.mentions_gold_topic_repr = []
         self.sentences_by_topic = defaultdict(dict)
         self.context_method = context_method
@@ -204,7 +204,6 @@ class CDCR_Dataset:
                         # Grouping by other variables
                         self.mentions[new_mention.mention_id] = new_mention
                         self.mentions_by_sentence[new_mention.conll_sent_key].add(new_mention.mention_id)
-                        self.mentions_by_type[new_mention.type].add(new_mention.mention_id)
                         self.mentions_gold_topic_repr.append(new_mention.return_gold_topic_representation())
 
                         # Grouping by dataset name and topic id
@@ -261,25 +260,32 @@ class CDCR_Dataset:
 
 class CL_Dataset(Dataset):
 
-    def __init__(self,name,data_paths,context_method,mention_type,tokenizer, 
-                 special_mention_tokens,mode="train",
-                 additional_sampling=False,predicted_topics=False): #Initialized tokenizer
+    def __init__(self, name, data_paths, context_method, tokenizer,
+                 special_mention_tokens, mode="train",
+                 additional_sampling=False, predicted_topics=False, sentence_transformer_model=None):
         #I will tokenize all the sequences up-front
         from sampling import return_pairs_and_labels
-        self.cdcr_dataset = CDCR_Dataset(name=name, data_path=data_paths,context_method=context_method,
-                                         special_mention_tokens=special_mention_tokens,predicted_topics=predicted_topics)
+        self.cdcr_dataset = CDCR_Dataset(name=name, data_path=data_paths, context_method=context_method,
+                                         special_mention_tokens=special_mention_tokens, predicted_topics=predicted_topics)
 
         #Tokenize mentions
-        self.mention_type = mention_type
         self.tokenizer = tokenizer
         self.tokenized_mentions = self.tokenize_mentions()
         self.mode = mode
 
         #Load pair keys and labels
-        if mode=="train":
+        if mode == "train":
+            # Load sentence transformer model if provided
+            if sentence_transformer_model is None:
+                raise ValueError("sentence_transformer_model must be provided for train mode")
+            st_model = SentenceTransformer(sentence_transformer_model)
+
             start_time = time.time()
-            self.all_pairs, self.all_labels = return_pairs_and_labels(cdcr_dataset=self.cdcr_dataset,
-                                                                        mention_type=self.mention_type,additional_sampling=additional_sampling)            
+            self.all_pairs, self.all_labels = return_pairs_and_labels(
+                cdcr_dataset=self.cdcr_dataset,
+                additional_sampling=additional_sampling,
+                model=st_model
+            )
             end_time = time.time()
             elapsed_time = end_time - start_time
             print(f"Time elapsed for sampling: {elapsed_time} seconds")
@@ -295,20 +301,19 @@ class CL_Dataset(Dataset):
         start_token = self.cdcr_dataset.special_mention_tokens[0]
         end_token = self.cdcr_dataset.special_mention_tokens[1]
 
-        mention_start = self.tokenizer.encode(start_token,add_special_tokens=False)
-        mention_end = self.tokenizer.encode(end_token,add_special_tokens=False)
+        mention_start = self.tokenizer.encode(start_token, add_special_tokens=False)
+        mention_end = self.tokenizer.encode(end_token, add_special_tokens=False)
 
-        if len(mention_start)!=1 or len(mention_end)!=1:
+        if len(mention_start) != 1 or len(mention_end) != 1:
             raise Exception("Either the special token [E] or [/E] is splitted in more than 1 token by the subword tokenizer")
-        
-        # Create a dictionary to store the tokens 
-        tokenized_dict = {}    
-        #Tokenize mention representation with context
-        mention_keys = self.cdcr_dataset.mentions_by_type[self.mention_type].intersection(self.cdcr_dataset.mentions.keys())
+
+        # Create a dictionary to store the tokens
+        tokenized_dict = {}
+        #Tokenize mention representation with context - all mentions, regardless of type
+        mention_keys = list(self.cdcr_dataset.mentions.keys())
         if not mention_keys:
-            print(f"dataset {self.cdcr_dataset.name} has no mentions of type {self.mention_type}")
+            print(f"dataset {self.cdcr_dataset.name} has no mentions")
             return tokenized_dict
-        mention_keys = list(mention_keys)
         context_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[0]) for key in mention_keys]
         mention_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[1]) for key in mention_keys]
         #Remove linebreaks

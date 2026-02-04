@@ -12,6 +12,7 @@ data:
 
 model:
   language_model: "roberta-large"
+  sentence_transformer_model: "all-mpnet-base-v2"
   learning_rate: 2e-7
   margin: 0.4 # 0.4 for events, 0.7 for entities
   clustering_threshold: 0.2

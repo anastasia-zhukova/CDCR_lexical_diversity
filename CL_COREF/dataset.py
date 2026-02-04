@@ -115,6 +115,7 @@ class CDCR_Dataset:
         self.sentences = {}
         self.mentions_by_topic = defaultdict(list)
         self.mentions_by_sentence = defaultdict(set)
+        self.mentions_by_type = defaultdict(set)
         self.mentions_gold_topic_repr = []
         self.sentences_by_topic = defaultdict(dict)
         self.context_method = context_method
@@ -204,6 +205,7 @@ class CDCR_Dataset:
                         # Grouping by other variables
                         self.mentions[new_mention.mention_id] = new_mention
                         self.mentions_by_sentence[new_mention.conll_sent_key].add(new_mention.mention_id)
+                        self.mentions_by_type[new_mention.type].add(new_mention.mention_id)
                         self.mentions_gold_topic_repr.append(new_mention.return_gold_topic_representation())
 
                         # Grouping by dataset name and topic id
@@ -260,7 +262,7 @@ class CDCR_Dataset:
 
 class CL_Dataset(Dataset):
 
-    def __init__(self, name, data_paths, context_method, tokenizer,
+    def __init__(self, name, data_paths, context_method, mention_type, tokenizer,
                  special_mention_tokens, mode="train",
                  additional_sampling=False, predicted_topics=False, sentence_transformer_model=None):
         #I will tokenize all the sequences up-front
@@ -269,6 +271,7 @@ class CL_Dataset(Dataset):
                                          special_mention_tokens=special_mention_tokens, predicted_topics=predicted_topics)
 
         #Tokenize mentions
+        self.mention_type = mention_type
         self.tokenizer = tokenizer
         self.tokenized_mentions = self.tokenize_mentions()
         self.mode = mode
@@ -283,6 +286,7 @@ class CL_Dataset(Dataset):
             start_time = time.time()
             self.all_pairs, self.all_labels = return_pairs_and_labels(
                 cdcr_dataset=self.cdcr_dataset,
+                mention_type=self.mention_type,
                 additional_sampling=additional_sampling,
                 model=st_model
             )
@@ -309,11 +313,12 @@ class CL_Dataset(Dataset):
 
         # Create a dictionary to store the tokens
         tokenized_dict = {}
-        #Tokenize mention representation with context - all mentions, regardless of type
-        mention_keys = list(self.cdcr_dataset.mentions.keys())
+        #Tokenize mention representation with context
+        mention_keys = self.cdcr_dataset.mentions_by_type[self.mention_type].intersection(self.cdcr_dataset.mentions.keys())
         if not mention_keys:
-            print(f"dataset {self.cdcr_dataset.name} has no mentions")
+            print(f"dataset {self.cdcr_dataset.name} has no mentions of type {self.mention_type}")
             return tokenized_dict
+        mention_keys = list(mention_keys)
         context_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[0]) for key in mention_keys]
         mention_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[1]) for key in mention_keys]
         #Remove linebreaks

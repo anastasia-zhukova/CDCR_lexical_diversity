@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import RobertaTokenizer, RobertaModel, AutoTokenizer, AutoModel, T5EncoderModel, T5Tokenizer
+from transformers import RobertaTokenizer, RobertaModel
 
 class SiameseNetwork(nn.Module):    
 
@@ -107,82 +107,23 @@ class CustomContrastiveLoss(nn.Module):
         return loss.mean()  # Take the mean over the batch
 
 
-def create_tokenizer(language_model_name,special_tokens):
-    if language_model_name=="da-roberta":
-        tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
-        print("da-roberta tokenizer loaded")
-    elif language_model_name=="da-roberta-large":
-        tokenizer = RobertaTokenizer.from_pretrained('roberta-large')
-        print("da-roberta large tokenizer loaded")
-    elif language_model_name == 'deberta-large':
-        tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path='microsoft/deberta-large',use_fast=False)
-    elif language_model_name == 'deberta-v2-xlarge':
-        tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path='microsoft/deberta-v2-xlarge',use_fast=False)
-    elif language_model_name == 'bart-large':
-        tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path='facebook/bart-large',use_fast=False)
-    elif language_model_name == 'flan-t5-large':
-        tokenizer = T5Tokenizer.from_pretrained(pretrained_model_name_or_path='google/flan-t5-large',use_fast=False)
-    else:
-        #tokenizer = RobertaTokenizer.from_pretrained(pretrained_model_name_or_path=language_model_name)
-        tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path=language_model_name,use_fast=False)
-        print(f"{language_model_name} tokenizer loaded")
+def create_tokenizer(language_model_name, special_tokens):
+    assert language_model_name == 'roberta-large', f"Expected 'roberta-large', got '{language_model_name}'"
+
+    tokenizer = RobertaTokenizer.from_pretrained('roberta-large')
     tokenizer.add_tokens(special_tokens)
+    print("RoBERTa-large tokenizer loaded")
     print("added special tokens", special_tokens)
     return tokenizer
 
 
-class RobertaClass(torch.nn.Module):
-    def __init__(self,language_model_name):
-        super(RobertaClass, self).__init__()
-        self.roberta = RobertaModel.from_pretrained(language_model_name)
-        self.vocab_transform = torch.nn.Linear(self.roberta.config.hidden_size, 768)
-        self.dropout = torch.nn.Dropout(0.2)
-        self.classifier1 = torch.nn.Linear(768,2)
+def create_siamese_model(language_model_name, tokenizer_instance):
+    assert language_model_name == 'roberta-large', f"Expected 'roberta-large', got '{language_model_name}'"
 
-    def forward(self, input_ids, attention_mask, labels):
-        output_1 = self.roberta(input_ids, attention_mask)['last_hidden_state']
-        pooler = output_1[:, 0, :]
-        pooler = self.vocab_transform(pooler)
-        pooler = self.dropout(pooler)
-        output = self.classifier1(pooler)
-        loss = nn.cross_entropy(output, labels)
+    language_model_instance = RobertaModel.from_pretrained('roberta-large')
+    print("RoBERTa-large model loaded")
 
-        return loss
-    
-
-def create_siamese_model(language_model_name,tokenizer_instance):
-    if language_model_name=="da-roberta":
-        weight_dict = torch.load('DAPT_models/DA-Roberta.bin')
-        model = RobertaClass("roberta-base")
-        model.load_state_dict(weight_dict)
-        language_model_instance = model.roberta
-        print("loaded da-roberta model")
-    elif language_model_name=="da-roberta-large":
-        weight_dict = torch.load('DAPT_models/da-roberta-large.bin')
-        model = RobertaClass("roberta-large")
-        model.load_state_dict(weight_dict)
-        language_model_instance = model.roberta
-        print("loaded da-roberta-large model")
-    elif language_model_name == 'deberta-large':
-        language_model_instance = AutoModel.from_pretrained(pretrained_model_name_or_path='microsoft/deberta-large')
-        print(f"{language_model_name} model loaded")
-    elif language_model_name == 'deberta-v2-xlarge':
-        language_model_instance = AutoModel.from_pretrained(pretrained_model_name_or_path='microsoft/deberta-v2-xlarge')
-        print(f"{language_model_name} model loaded")
-    elif language_model_name == 'bart-large':
-        language_model_instance = AutoModel.from_pretrained(pretrained_model_name_or_path='facebook/bart-large')
-        print(f"{language_model_name} model loaded")
-    elif language_model_name == 'flan-t5-large':
-        language_model_instance = T5EncoderModel.from_pretrained(pretrained_model_name_or_path='google/flan-t5-large')
-        print(f"{language_model_name} model loaded")
-    elif language_model_name == 'conv-bert-base':
-        language_model_instance = AutoModel.from_pretrained(pretrained_model_name_or_path='YituTech/conv-bert-base')
-        print(f"{language_model_name} model loaded")
-    else:
-        language_model_instance = AutoModel.from_pretrained(pretrained_model_name_or_path= language_model_name) 
-        print(f"{language_model_name} model loaded")
-
-    siamese_model = SiameseNetwork(model=language_model_instance,tokenizer=tokenizer_instance)
+    siamese_model = SiameseNetwork(model=language_model_instance, tokenizer=tokenizer_instance)
     return siamese_model
 
 def create_optimizer(learning_rate,model):
@@ -190,11 +131,14 @@ def create_optimizer(learning_rate,model):
     if isinstance(model, torch.nn.DataParallel):
         model = model.module
 
+    # Ensure learning_rate is a float
+    learning_rate = float(learning_rate)
+
     #Create optimizer
     optimizer_params = [
     {'params': model.language_model.parameters(), 'lr': learning_rate},
     {'params': model.mlp_cls_embed.parameters(), 'lr': learning_rate},
     {'params': model.mlp_mention_embed.parameters(), 'lr': learning_rate},
 ]
-    optimizer = torch.optim.AdamW(optimizer_params)
+    optimizer = torch.optim.AdamW(optimizer_params, weight_decay=0.0)
     return optimizer

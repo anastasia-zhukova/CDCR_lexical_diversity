@@ -8,9 +8,7 @@ import statistics
 import torch
 from typing import Set, Dict
 
-model = SentenceTransformer('all-mpnet-base-v2')
-
-def encode_sentences(dict_sentences):
+def encode_sentences(dict_sentences, model):
 
     sentences = list(dict_sentences.values())
     list_of_keys = list(dict_sentences.keys())
@@ -22,18 +20,18 @@ def encode_sentences(dict_sentences):
     indices = lower_triangle_positions.t()
     return list_of_keys,cosine_scores, indices
 
-def sentences_processing(dict_sentences_by_topic,mentions_by_sentence,mentions_by_type: Set[str]):
+def sentences_processing(dict_sentences_by_topic, mentions_by_sentence, model):
     dict_sentences_pair_similarity_by_topic = {}
-    dict_mentions_by_topic_in_type = {}
+    dict_mentions_by_topic = {}
     dict_mention_pairs_by_pair = {}
-    for topic,sentences_dict in dict_sentences_by_topic.items():
+    for topic, sentences_dict in dict_sentences_by_topic.items():
         print(f'current topic {topic}')
         if not sentences_dict:
             print(f"topic {topic} is empty")
             continue
-        
-        #Compute similarity        
-        list_of_keys,cosine_scores, indices = encode_sentences(sentences_dict)
+
+        #Compute similarity
+        list_of_keys, cosine_scores, indices = encode_sentences(sentences_dict, model)
 
         # Create a dictionary using the indices
         lower_triangle_dict = {}
@@ -41,31 +39,31 @@ def sentences_processing(dict_sentences_by_topic,mentions_by_sentence,mentions_b
         for i, j in indices:
             key_sentence1 = list_of_keys[i.item()]
             key_sentence2 = list_of_keys[j.item()]
-            #Ignore sentences without mentions of the chosen type
+            #Ignore sentences without mentions
             if not mentions_by_sentence[key_sentence1] or not mentions_by_sentence[key_sentence2]:
                 continue
 
-            mentions_by_type_sentence1 = mentions_by_type.intersection(mentions_by_sentence[key_sentence1]) 
-            mentions_by_type_sentence2 = mentions_by_type.intersection(mentions_by_sentence[key_sentence2]) 
+            mentions_sentence1 = mentions_by_sentence[key_sentence1]
+            mentions_sentence2 = mentions_by_sentence[key_sentence2]
 
-            if not mentions_by_type_sentence1 or not mentions_by_type_sentence2:
+            if not mentions_sentence1 or not mentions_sentence2:
                 continue
-            mentions_by_type_in_pair = mentions_by_type_sentence1.union(mentions_by_type_sentence2)
-            if len(mentions_by_type_in_pair)<2:
-                raise Exception(f"pair {key_sentence1},{key_sentence2} has less than 2 mentions in the current type")
-            topic_mentions_set.update(mentions_by_type_in_pair)
+            mentions_in_pair = mentions_sentence1.union(mentions_sentence2)
+            if len(mentions_in_pair) < 2:
+                raise Exception(f"pair {key_sentence1},{key_sentence2} has less than 2 mentions")
+            topic_mentions_set.update(mentions_in_pair)
 
-            key_pair = (key_sentence1, key_sentence2) 
+            key_pair = (key_sentence1, key_sentence2)
             similarity_score = round(cosine_scores[i, j].item(), 3)
-            if similarity_score<1: #ignores those sentences with similarity=1. Those are mostly exact citations
+            if similarity_score < 1: #ignores those sentences with similarity=1. Those are mostly exact citations
                 lower_triangle_dict[key_pair] = similarity_score
-                dict_mention_pairs_by_pair[key_pair] = product(mentions_by_type_sentence1, mentions_by_type_sentence2)
+                dict_mention_pairs_by_pair[key_pair] = product(mentions_sentence1, mentions_sentence2)
 
         if lower_triangle_dict:
             dict_sentences_pair_similarity_by_topic[topic] = lower_triangle_dict
-            dict_mentions_by_topic_in_type[topic] = topic_mentions_set
+            dict_mentions_by_topic[topic] = topic_mentions_set
 
-    return dict_sentences_pair_similarity_by_topic, dict_mentions_by_topic_in_type,dict_mention_pairs_by_pair 
+    return dict_sentences_pair_similarity_by_topic, dict_mentions_by_topic, dict_mention_pairs_by_pair 
 
 def unnest_dictionary(input_dict,key=''):
   
@@ -134,19 +132,21 @@ def create_mention_pairs(dict_sentences_pairs_similarity,mentions, mention_pairs
     print(f'there are {len(positive_pairs)} positive mention pairs and {len(negative_pairs)} negative mentions')
     return all_pairs, all_labels
 
-def return_pairs_and_labels(cdcr_dataset, mention_type, additional_sampling):
-    #TODO lift restriction on ECB topic 34 once the dataset is updated
+def return_pairs_and_labels(cdcr_dataset, additional_sampling, model):
     sentences_by_topic = cdcr_dataset.sentences_by_topic
-    sentences_by_topic.pop('ECBplus-34',None)
-    
-    sentences_pairs_similarity_dict,dict_mentions_by_topic_in_type,dict_mention_pairs_by_pair = sentences_processing(sentences_by_topic,
-                                                                               cdcr_dataset.mentions_by_sentence,
-                                                                               cdcr_dataset.mentions_by_type[mention_type])
-    # Previous method guarantees there is at least 1 mention of the chosen type in each sentence
 
-    pairs,labels = create_mention_pairs(dict_sentences_pairs_similarity=sentences_pairs_similarity_dict,
-                                                 mentions = cdcr_dataset.mentions, mention_pairs_by_pair=dict_mention_pairs_by_pair,
-                                                 mention_keys_by_topic_in_type = dict_mentions_by_topic_in_type,
-                                                 additional_sampling = additional_sampling)
+    sentences_pairs_similarity_dict, dict_mentions_by_topic, dict_mention_pairs_by_pair = sentences_processing(
+        sentences_by_topic,
+        cdcr_dataset.mentions_by_sentence,
+        model
+    )
 
-    return pairs,labels
+    pairs, labels = create_mention_pairs(
+        dict_sentences_pairs_similarity=sentences_pairs_similarity_dict,
+        mentions=cdcr_dataset.mentions,
+        mention_pairs_by_pair=dict_mention_pairs_by_pair,
+        mention_keys_by_topic_in_type=dict_mentions_by_topic,
+        additional_sampling=additional_sampling
+    )
+
+    return pairs, labels

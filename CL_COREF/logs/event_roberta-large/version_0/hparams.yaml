@@ -1,0 +1,26 @@
+config:
+  data:
+    additional_sampling: false
+    context_method: hsu
+    data_setup: 0
+    mention_type: event
+    predicted_topics: false
+    special_tokens:
+    - E
+    train_batch_size: 32
+    val_batch_size: 64
+  model:
+    clustering_threshold: 0.2
+    language_model: roberta-large
+    learning_rate: 2e-7
+    margin: 0.4
+    mlp_hidden_dim: 1024
+  paths:
+    base_data_path: data
+    models_dir: models
+  training:
+    accelerator: auto
+    devices: auto
+    metric: conll
+    num_epochs: 5
+    precision: 16-mixed

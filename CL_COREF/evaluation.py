@@ -48,42 +48,45 @@ def predict_clusters(dict_embeddings_by_topic, clustering_threshold=0.2):
         list_of_embeddings = list(dict_topic.values())
         num_mentions = len(list_of_embeddings)
         print("Number of mentions:", num_mentions, "for topic", topic)
-        
+
         if num_mentions == 0:
             continue
 
         # Convert list of embeddings to a numpy array
         embeddings_np = np.array([tensor.cpu().numpy() for tensor in list_of_embeddings], dtype=np.float32)
-        
 
-        index = faiss.index_factory(embeddings_np.shape[1], "Flat", faiss.METRIC_INNER_PRODUCT)
-        faiss.normalize_L2(embeddings_np)
-        index.add(embeddings_np)
-        # Measure time for pairwise cosine similarity computation
-        start_time = time.time()
-        D, I = index.search(embeddings_np, num_mentions)
-        # Initialize a new distance matrix to hold the reordered distances
-        reordered_distances = np.zeros_like(D)
-        rows = np.arange(num_mentions)[:, np.newaxis]
-        reordered_distances[rows, I] = D
+        # Handle single mention case (no clustering needed)
+        if num_mentions == 1:
+            adjusted_predicted_label = np.array([max_predicted_cluster_value])
+        else:
+            index = faiss.index_factory(embeddings_np.shape[1], "Flat", faiss.METRIC_INNER_PRODUCT)
+            faiss.normalize_L2(embeddings_np)
+            index.add(embeddings_np)
+            # Measure time for pairwise cosine similarity computation
+            start_time = time.time()
+            D, I = index.search(embeddings_np, num_mentions)
+            # Initialize a new distance matrix to hold the reordered distances
+            reordered_distances = np.zeros_like(D)
+            rows = np.arange(num_mentions)[:, np.newaxis]
+            reordered_distances[rows, I] = D
 
-        # Compute cosine distances
-        distances = 1 - reordered_distances
+            # Compute cosine distances
+            distances = 1 - reordered_distances
 
-        end_time = time.time()
-        execution_time = end_time - start_time
-        print("Pairwise distance computation Execution time:", execution_time)
+            end_time = time.time()
+            execution_time = end_time - start_time
+            print("Pairwise distance computation Execution time:", execution_time)
 
-        # Clustering
-        start_time = time.time()
-        clustering = AgglomerativeClustering(n_clusters=None, metric='precomputed', linkage='average',
-                                             distance_threshold=clustering_threshold)
-        
-        # Implement CoNLL score with this fit and save as Dataframe
-        adjusted_predicted_label = clustering.fit_predict(distances) + max_predicted_cluster_value  # Ensure no label overlap when moving to another topic
-        end_time = time.time()
-        execution_time = end_time - start_time
-        print("Agglomerative clustering execution time:", execution_time)
+            # Clustering
+            start_time = time.time()
+            clustering = AgglomerativeClustering(n_clusters=None, metric='precomputed', linkage='average',
+                                                 distance_threshold=clustering_threshold)
+
+            # Implement CoNLL score with this fit and save as Dataframe
+            adjusted_predicted_label = clustering.fit_predict(distances) + max_predicted_cluster_value  # Ensure no label overlap when moving to another topic
+            end_time = time.time()
+            execution_time = end_time - start_time
+            print("Agglomerative clustering execution time:", execution_time)
 
         predicted_df_by_topic = pd.DataFrame({"mention_id": list(dict_topic.keys()),
                                               "predicted_cluster": adjusted_predicted_label, 
@@ -207,6 +210,6 @@ def predict_and_evaluate(dataloader,device,model,cl_cdcr_dataset,metrics="all",w
     dict_embeddings_by_topic=return_embeddings_by_topic(dict_embeddings_by_mention=dict_embeddings_by_mention,mentions=cdcr_dataset.mentions)
     predicted_clusters_df = predict_clusters(dict_embeddings_by_topic,clustering_threshold)
     merged_df = cdcr_dataset.gold_clusters_df.merge(predicted_clusters_df,how="inner", on="mention_id")
-    df_metrics = compute_cdcr_metrics(cdcr_dataset_name=cdcr_dataset.name,predictions_df=merged_df,metrics=metrics,without_singletons=without_singletons,mention_type=cl_cdcr_dataset.mention_type)
+    df_metrics = compute_cdcr_metrics(cdcr_dataset_name=cdcr_dataset.name,predictions_df=merged_df,metrics=metrics,without_singletons=without_singletons,mention_type="all")
     print(f' eval conll: {round(df_metrics.loc["conll","F1"],2)},eval lea: {round(df_metrics.loc["lea","F1"],2)},eval pd_lea: {round(df_metrics.loc["pd_lea","F1"],2)}')
     return df_metrics, merged_df

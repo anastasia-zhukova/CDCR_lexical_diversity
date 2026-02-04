@@ -1,0 +1,30 @@
+# Default Configuration for CL_COREF Training
+
+data:
+  mention_type: "event"
+  context_method: "hsu"
+  special_tokens: ["E"]
+  train_batch_size: 16
+  val_batch_size: 64
+  data_setup: 0 # 0: ecbplus, 1: ecbplus_fcc, 2: ecbplus_np4e
+  additional_sampling: false
+  predicted_topics: false
+
+model:
+  language_model: "roberta-large"
+  sentence_transformer_model: "all-mpnet-base-v2"
+  learning_rate: 2e-7
+  margin: 0.4 # 0.4 for events, 0.7 for entities
+  clustering_threshold: 0.2
+  mlp_hidden_dim: 1024
+
+training:
+  num_epochs: 1
+  precision: "16-mixed"
+  accelerator: "auto"
+  devices: "auto"
+  metric: "conll"
+
+paths:
+  base_data_path: "data"
+  models_dir: "models"

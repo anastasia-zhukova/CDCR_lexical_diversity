@@ -5,12 +5,13 @@ import nltk
 from nltk.corpus import stopwords
 import os
 import pandas as pd
-import string       
+import string
 import sys
 import time
 from torch.utils.data import Dataset, Subset
 import traceback
 from typing import Dict, Any
+from sentence_transformers import SentenceTransformer
 
 from cluster_documents import return_mentions_with_predicted_topics
 nltk.download('stopwords')
@@ -134,42 +135,39 @@ class CDCR_Dataset:
 
     def load_mentions(self):
         entity_types = {"/entity_mentions.json":"entity",
-                        "/event_mentions.json":"event"} 
+                        "/event_mentions.json":"event"}
 
         if not isinstance(self.data_path, list):
             self.data_path= [self.data_path]
 
         for path in self.data_path:
-            # get dataset name from path
+            # Get dataset name from path (e.g., "ECBplus" from "CL_COREF/data/ECBplus/train")
+            # The parent directory name is the dataset name
+            parent_dir = os.path.dirname(path)
+            dataset_name = os.path.basename(parent_dir)
 
-            splitted_path = path.split("/")
-            prep_elements = [element for element in splitted_path if 'prep' in element]
-            dataset_name = ""
-            if len(prep_elements) == 1:
-                dataset_name = prep_elements[0].split("-")[0]
-            else:
-                raise ValueError(f"Error: the path {path} does not contain exactly one element containing the string 'prep' from which to extract the dataset's name")
-
-            # Load docs from conll_files
-            docs = self.read_conll_file(path)
+            # Load documents from parent directory's parquet file
+            docs = self.read_parquet_documents(parent_dir)
             self.docs.update(docs)
-            #Process dictionary of sentences by document id
+
+            # Process dictionary of sentences by document id
             new_sentences_dict = self.make_dict_of_sentences(docs)
 
-            #Create dictionary of sentences by topic to compute similarity within groups
+            # Create dictionary of sentences by topic to compute similarity within groups
             for doc_key, doc in new_sentences_dict.items():
                 topic_num = doc_key.split("/")[0]
                 dataset_topic_key = f"{dataset_name}-{topic_num}"
 
                 for index, sentence in doc.items():
-                    #key equals doc_key + sentence key and values are concatenated tokens
-                    self.sentences_by_topic[dataset_topic_key].update({f"{doc_key}/{index}":' '.join(sentence.values()) })
+                    # key equals doc_key + sentence key and values are concatenated tokens
+                    self.sentences_by_topic[dataset_topic_key].update({f"{doc_key}/{index}":' '.join(sentence.values())})
 
-            #Add to the existing dictionary
-            current_sentences_dict = self.sentences.copy() 
+            # Add to the existing dictionary
+            current_sentences_dict = self.sentences.copy()
             current_sentences_dict.update(new_sentences_dict)
             self.sentences = current_sentences_dict
 
+            # Load mentions from JSON files in the train/val/test subdirectory
             for file_path, type_str in entity_types.items():
                 mention_type_path = path + file_path
                 if os.path.exists(mention_type_path):
@@ -177,74 +175,76 @@ class CDCR_Dataset:
                     ## Process mentions:
                     with open(mention_type_path, 'r') as f:
                         raw_mentions = json.load(f)
-                    
+
                     for mention_dict in raw_mentions:
-                        new_mention = Mention(mention_dict,m_type=type_str,source_path=path)
+                        new_mention = Mention(mention_dict, m_type=type_str, source_path=path)
 
                         ## Validations before storing the mention
-                        
-                        #conll_key exists in the CoNLL file?
+
+                        # conll_key exists in the document dictionary?
                         if new_mention.conll_doc_key not in self.sentences.keys():
-                            raise ValueError(f"Mention {new_mention.mention_id} does not have a matching CoNLL doc key in the dictionary of sentences")
-                        
-                        #mention already added to the dictionary?
+                            raise ValueError(f"Mention {new_mention.mention_id} does not have a matching doc key in the dictionary of sentences")
+
+                        # mention already added to the dictionary?
                         if new_mention.mention_id in self.mentions:
-                            raise ValueError(f"Mention '{new_mention.mention_id }' already exists in the dictionary of mentions.")
-                        
-                        #new_mention.tokens_text equals the concatenation of tokens extracted from the conll file?
-                        new_mention_sentence = self.sentences[new_mention.conll_doc_key][new_mention.sent_id]    
+                            raise ValueError(f"Mention '{new_mention.mention_id}' already exists in the dictionary of mentions.")
+
+                        # new_mention.tokens_text equals the concatenation of tokens extracted from documents?
+                        new_mention_sentence = self.sentences[new_mention.conll_doc_key][new_mention.sent_id]
                         tokens_from_sentence = [new_mention_sentence[token_mention_id] for token_mention_id in new_mention.tokens_number]
                         differences = new_mention.validate_token_str(tokens_from_sentence)
 
                         if differences:
                             raise ValueError(f"Mention {new_mention.mention_id} has attribute tokens_text={new_mention.tokens_text} and the tokens extracted from the sentence are {tokens_from_sentence} in position {differences}")
-                        
+
                         ## Assignments
 
-                        #Create context
-                        new_mention.create_context(doc_sentences_dict=self.sentences[new_mention.conll_doc_key],method=self.context_method,special_mention_tokens=self.special_mention_tokens)
+                        # Create context
+                        new_mention.create_context(doc_sentences_dict=self.sentences[new_mention.conll_doc_key], method=self.context_method, special_mention_tokens=self.special_mention_tokens)
 
-                        #Grouping by other variables
-                        self.mentions[new_mention.mention_id]=new_mention
+                        # Grouping by other variables
+                        self.mentions[new_mention.mention_id] = new_mention
                         self.mentions_by_sentence[new_mention.conll_sent_key].add(new_mention.mention_id)
                         self.mentions_by_type[new_mention.type].add(new_mention.mention_id)
                         self.mentions_gold_topic_repr.append(new_mention.return_gold_topic_representation())
 
-                        #Grouping by dataset name and topic id
-
+                        # Grouping by dataset name and topic id
                         dataset_topic_key = f"{dataset_name}-{new_mention.topic_id}"
                         if dataset_topic_key not in self.sentences_by_topic.keys():
-                            raise ValueError(f"There is a mismatch between the dataset_topic_key {dataset_topic_key} from mention {new_mention.mention_id} and these keys {self.sentences_by_topic.keys()} ")
-                        
+                            raise ValueError(f"There is a mismatch between the dataset_topic_key {dataset_topic_key} from mention {new_mention.mention_id} and these keys {self.sentences_by_topic.keys()}")
+
                         self.mentions_by_topic[dataset_topic_key].append(new_mention.mention_id)
 
         
 
 
-    def read_conll_file(self,doc_conll_path:str) ->dict: 
+    def read_parquet_documents(self, data_path: str) -> dict:
+        """Read documents from parquet file and convert to expected format"""
         Token = namedtuple("Token", "conll_doc_key sentence_id token_id token_str coref_chain")
 
-        current_document_id = ''
-        current_document_list = []
         dict_documents = {}
-        doc_conll_path = os.path.join(doc_conll_path, "dataset.conll")
-        with open(doc_conll_path, 'r', encoding='utf-8') as file:
-            for line in file:
-                line = line.strip()
-                
-                if line.startswith("#begin") or line == '':
-                    continue  # Skip the header line
+        parquet_path = os.path.join(data_path, "all_documents.parquet")
 
-                elif line.startswith("#end") or line == '':
-                    current_document_id = current_document_list[0].conll_doc_key
-                    dict_documents[current_document_id] = current_document_list
-                    current_document_list = []
-                else:
-                    parts = line.split('\t')
-                    token = Token(parts[0],int(parts[1]),int(parts[2]),parts[3],
-                                parts[4].replace('(','').replace(')','')  )
+        if not os.path.exists(parquet_path):
+            raise FileNotFoundError(f"Parquet file not found: {parquet_path}")
 
-                    current_document_list.append(token)
+        # Read parquet file
+        df_docs = pd.read_parquet(parquet_path)
+
+        # Group by document
+        for doc_key, doc_group in df_docs.groupby('topic/subtopic_name/doc'):
+            token_list = []
+            for _, row in doc_group.iterrows():
+                token = Token(
+                    conll_doc_key=doc_key,
+                    sentence_id=row['sent_id'],
+                    token_id=row['token_id'],
+                    token_str=row['token'],
+                    coref_chain='-'  # Not used in current implementation
+                )
+                token_list.append(token)
+
+            dict_documents[doc_key] = token_list
 
         return dict_documents
     
@@ -262,25 +262,32 @@ class CDCR_Dataset:
 
 class CL_Dataset(Dataset):
 
-    def __init__(self,name,data_paths,context_method,mention_type,tokenizer, 
-                 special_mention_tokens,mode="train",
-                 additional_sampling=False,predicted_topics=False): #Initialized tokenizer
-        #I will tokenize all the sequences up-front
+    def __init__(self, name, data_paths, context_method, tokenizer,
+                 special_mention_tokens, mode="train",
+                 additional_sampling=False, predicted_topics=False, sentence_transformer_model=None):
+        #tokenize all the sequences up-front
         from sampling import return_pairs_and_labels
-        self.cdcr_dataset = CDCR_Dataset(name=name, data_path=data_paths,context_method=context_method,
-                                         special_mention_tokens=special_mention_tokens,predicted_topics=predicted_topics)
+        self.cdcr_dataset = CDCR_Dataset(name=name, data_path=data_paths, context_method=context_method,
+                                         special_mention_tokens=special_mention_tokens, predicted_topics=predicted_topics)
 
         #Tokenize mentions
-        self.mention_type = mention_type
         self.tokenizer = tokenizer
         self.tokenized_mentions = self.tokenize_mentions()
         self.mode = mode
 
         #Load pair keys and labels
-        if mode=="train":
+        if mode == "train":
+            # Load sentence transformer model if provided
+            if sentence_transformer_model is None:
+                raise ValueError("sentence_transformer_model must be provided for train mode")
+            st_model = SentenceTransformer(sentence_transformer_model)
+
             start_time = time.time()
-            self.all_pairs, self.all_labels = return_pairs_and_labels(cdcr_dataset=self.cdcr_dataset,
-                                                                        mention_type=self.mention_type,additional_sampling=additional_sampling)            
+            self.all_pairs, self.all_labels = return_pairs_and_labels(
+                cdcr_dataset=self.cdcr_dataset,
+                additional_sampling=additional_sampling,
+                model=st_model
+            )
             end_time = time.time()
             elapsed_time = end_time - start_time
             print(f"Time elapsed for sampling: {elapsed_time} seconds")
@@ -296,20 +303,19 @@ class CL_Dataset(Dataset):
         start_token = self.cdcr_dataset.special_mention_tokens[0]
         end_token = self.cdcr_dataset.special_mention_tokens[1]
 
-        mention_start = self.tokenizer.encode(start_token,add_special_tokens=False)
-        mention_end = self.tokenizer.encode(end_token,add_special_tokens=False)
+        mention_start = self.tokenizer.encode(start_token, add_special_tokens=False)
+        mention_end = self.tokenizer.encode(end_token, add_special_tokens=False)
 
-        if len(mention_start)!=1 or len(mention_end)!=1:
+        if len(mention_start) != 1 or len(mention_end) != 1:
             raise Exception("Either the special token [E] or [/E] is splitted in more than 1 token by the subword tokenizer")
-        
-        # Create a dictionary to store the tokens 
-        tokenized_dict = {}    
-        #Tokenize mention representation with context
-        mention_keys = self.cdcr_dataset.mentions_by_type[self.mention_type].intersection(self.cdcr_dataset.mentions.keys())
+
+        # Create a dictionary to store the tokens
+        tokenized_dict = {}
+        #Tokenize mention representation with context - all mentions, regardless of type
+        mention_keys = list(self.cdcr_dataset.mentions.keys())
         if not mention_keys:
-            print(f"dataset {self.cdcr_dataset.name} has no mentions of type {self.mention_type}")
+            print(f"dataset {self.cdcr_dataset.name} has no mentions")
             return tokenized_dict
-        mention_keys = list(mention_keys)
         context_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[0]) for key in mention_keys]
         mention_texts = [" ".join(self.cdcr_dataset.mentions[key].new_context[1]) for key in mention_keys]
         #Remove linebreaks

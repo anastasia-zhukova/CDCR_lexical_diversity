@@ -286,7 +286,6 @@ class CL_Dataset(Dataset):
             start_time = time.time()
             self.all_pairs, self.all_labels = return_pairs_and_labels(
                 cdcr_dataset=self.cdcr_dataset,
-                mention_type=self.mention_type,
                 additional_sampling=additional_sampling,
                 model=st_model
             )

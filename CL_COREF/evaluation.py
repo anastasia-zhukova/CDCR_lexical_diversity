@@ -1,5 +1,6 @@
 import faiss
 import numpy as np
+import os
 import pandas as pd
 from sklearn.cluster import AgglomerativeClustering
 import time
@@ -29,15 +30,39 @@ def create_embeddings_by_mention(dataloader,device,model,cl_dataset_keys_list):
         dict_embeddings_by_mention.update(dict_embeddings_batch)
     return dict_embeddings_by_mention
 
-def return_embeddings_by_topic(dict_embeddings_by_mention,mentions):
-    dict_embeddings_by_topic={}
+def return_embeddings_by_topic(dict_embeddings_by_mention, mentions, use_dataset_prefix=False):
+    """
+    Group embeddings by topic_id.
 
-    for mention_key,embedding in dict_embeddings_by_mention.items():
-        topic_id_temp = mentions[mention_key].topic_id
-        if topic_id_temp in dict_embeddings_by_topic:
-            dict_embeddings_by_topic[topic_id_temp][mention_key] = embedding
+    Args:
+        dict_embeddings_by_mention: Dictionary of mention embeddings
+        mentions: Dictionary of Mention objects
+        use_dataset_prefix: If True, create dataset_topic_key (e.g., "ECBplus-1")
+                           for multi-dataset scenarios. If False, use simple topic_id.
+
+    Returns:
+        Dictionary with topic keys -> mention embeddings
+    """
+    dict_embeddings_by_topic = {}
+
+    for mention_key, embedding in dict_embeddings_by_mention.items():
+        mention = mentions[mention_key]
+        topic_id = mention.topic_id
+
+        if use_dataset_prefix:
+            # Extract dataset name from source_path
+            # source_path format: "/path/to/ECBplus/train" or "data/ECBplus/train"
+            parent_dir = os.path.dirname(mention.source_path)
+            dataset_name = os.path.basename(parent_dir)
+            topic_key = f"{dataset_name}-{topic_id}"
         else:
-            dict_embeddings_by_topic[topic_id_temp] = {mention_key: embedding}
+            topic_key = topic_id
+
+        if topic_key in dict_embeddings_by_topic:
+            dict_embeddings_by_topic[topic_key][mention_key] = embedding
+        else:
+            dict_embeddings_by_topic[topic_key] = {mention_key: embedding}
+
     return dict_embeddings_by_topic
 
 def predict_clusters(dict_embeddings_by_topic, clustering_threshold=0.2):

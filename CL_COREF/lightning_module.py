@@ -68,9 +68,17 @@ class CorefLightningModule(L.LightningModule):
 
         # Call the existing evaluation logic
         from evaluation import return_embeddings_by_topic, predict_clusters, compute_cdcr_metrics
-        
+
         cdcr_dataset = val_dataset.cdcr_dataset
-        dict_embeddings_by_topic = return_embeddings_by_topic(dict_embeddings_by_mention, cdcr_dataset.mentions)
+
+        # Determine if we need dataset prefixes (multi-dataset scenario)
+        use_dataset_prefix = len(getattr(val_dataset, 'cdcr_datasets', [cdcr_dataset])) > 1
+
+        dict_embeddings_by_topic = return_embeddings_by_topic(
+            dict_embeddings_by_mention,
+            cdcr_dataset.mentions,
+            use_dataset_prefix=use_dataset_prefix
+        )
         predicted_clusters_df = predict_clusters(dict_embeddings_by_topic, self.model_config["clustering_threshold"])
         merged_df = cdcr_dataset.gold_clusters_df.merge(predicted_clusters_df, how="inner", on="mention_id")
         

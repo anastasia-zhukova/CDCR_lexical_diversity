@@ -1,0 +1,49 @@
+# Extended examples showing how to use topic filtering and max_mentions restrictions
+
+# Example 3: ECBplus with topic filtering (only first 5 topics)
+3:
+  name: "ecbplus_topics_1_5"
+  datasets:
+    - name: "ECBplus"
+      splits: ["train", "val"]
+      topic_filter: ["1", "2", "3", "4", "5"]  # Only load these topics
+      max_mentions: null  # No mention limit
+
+# Example 4: ECBplus + FCC with balanced mention counts
+4:
+  name: "ecbplus_fcc_balanced"
+  datasets:
+    - name: "ECBplus"
+      splits: ["train", "val"]
+      topic_filter: null  # All topics
+      max_mentions: 2000  # Limit to 2000 mentions per split
+    - name: "FCC"
+      splits: ["train", "val"]
+      topic_filter: null
+      max_mentions: 2000  # Match ECBplus count
+
+# Example 5: Multiple datasets with different restrictions per dataset
+5:
+  name: "multi_dataset_restricted"
+  datasets:
+    - name: "ECBplus"
+      splits: ["train", "val"]
+      topic_filter: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
+      max_mentions: 1500
+    - name: "FCC"
+      splits: ["train", "val"]
+      topic_filter: null  # FCC typically has topic_id "0"
+      max_mentions: 1000
+    - name: "NP4E"
+      splits: ["train", "val"]
+      topic_filter: ["1", "2", "3", "4", "5"]  # Specific NP4E topics
+      max_mentions: 800
+
+# Example 6: Small subset for quick testing
+6:
+  name: "small_test_subset"
+  datasets:
+    - name: "ECBplus"
+      splits: ["train", "val"]
+      topic_filter: ["1", "2"]  # Just 2 topics
+      max_mentions: 100  # Very small for quick iteration

@@ -1,24 +1,37 @@
 # Data setup configurations
 # Each setup defines datasets with their available splits
+# Optional per-dataset restrictions:
+#   - topic_filter: list of topic_ids to include (null = all topics)
+#   - max_mentions: maximum number of mentions to load (null = no limit)
 
 0:
   name: "ecbplus"
   datasets:
     - name: "ECBplus"
       splits: ["train", "val"]
+      topic_filter: null  # Load all topics
+      max_mentions: null  # No mention limit
 
 1:
   name: "ecbplus_fcc"
   datasets:
     - name: "ECBplus"
       splits: ["train", "val"]
+      topic_filter: null  # Load all topics
+      max_mentions: null  # No mention limit
     - name: "FCC"
       splits: ["train", "val"]
+      topic_filter: null  # FCC typically uses topic_id "0"
+      max_mentions: null  # No mention limit
 
 2:
   name: "ecbplus_np4e"
   datasets:
     - name: "ECBplus"
       splits: ["train", "val"]
+      topic_filter: null  # Load all topics
+      max_mentions: null  # No mention limit
     - name: "NP4E"
       splits: ["train", "val"]
+      topic_filter: null  # Load all topics
+      max_mentions: null  # No mention limit

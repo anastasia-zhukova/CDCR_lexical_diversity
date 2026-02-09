@@ -1,5 +1,7 @@
 datasets==4.5.0
 faiss-cpu==1.8.0 
+kedro==1.2.0
+kedro-datasets==9.1.1
 lightning==2.6.0
 matplotlib==3.7.4
 nltk==3.8.1

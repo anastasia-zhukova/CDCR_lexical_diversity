@@ -149,10 +149,17 @@ class CDCR_Dataset:
         if self.max_mentions and len(self.mentions) > self.max_mentions:
             self._apply_max_mentions_limit()
 
-        #Create gold clusters dataframe
-        gold_clusters_df = pd.DataFrame(self.mentions_gold_topic_repr)
-        gold_clusters_df["gold_cluster"] = pd.Categorical(gold_clusters_df["coref_chain"]).codes
-        self.gold_clusters_df = gold_clusters_df
+        # Create gold clusters dataframe
+        if self.mentions_gold_topic_repr:
+            gold_clusters_df = pd.DataFrame(self.mentions_gold_topic_repr)
+            gold_clusters_df["gold_cluster"] = pd.Categorical(gold_clusters_df["coref_chain"]).codes
+            self.gold_clusters_df = gold_clusters_df
+        else:
+            # Create empty DataFrame with expected columns
+            self.gold_clusters_df = pd.DataFrame(columns=[
+                "mention_id", "subtopic_id", "coref_chain", "mention_type",
+                "mention_head", "mention_wo_stopwords", "mention_wordset", "gold_cluster"
+            ])
 
         #Change gold subtopics to predicted topics for ECB+
         if predicted_topics and name=="ecbplus_test":
@@ -186,6 +193,7 @@ class CDCR_Dataset:
         self.sentences = new_sentences_dict
 
         # Load mentions from JSON files in the train/val/test subdirectory
+        mentions_loaded = 0
         for file_path, type_str in entity_types.items():
             mention_type_path = path + file_path
             if os.path.exists(mention_type_path):
@@ -193,6 +201,8 @@ class CDCR_Dataset:
                 ## Process mentions:
                 with open(mention_type_path, 'r') as f:
                     raw_mentions = json.load(f)
+
+                print(f"Found {len(raw_mentions)} {type_str} mentions in {os.path.basename(mention_type_path)}")
 
                 for mention_dict in raw_mentions:
                     new_mention = Mention(mention_dict, m_type=type_str, source_path=path)
@@ -236,6 +246,11 @@ class CDCR_Dataset:
                             raise ValueError(f"There is a mismatch between the topic_id {topic_id} from mention {new_mention.mention_id} and these keys {self.sentences_by_topic.keys()}")
 
                         self.mentions_by_topic[topic_id].append(new_mention.mention_id)
+                        mentions_loaded += 1
+
+        # Warn if no mentions were loaded
+        if mentions_loaded == 0:
+            print(f"WARNING: No mentions loaded for {self.name} from {path}")
 
     def _apply_max_mentions_limit(self):
         """Randomly sample max_mentions from loaded mentions and update all derived structures."""

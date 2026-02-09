@@ -1,0 +1,32 @@
+# Data Catalog for Pipeline 02: Pairs Selection
+#
+# This catalog defines the inputs and outputs for the sentence-level pairs selection pipeline.
+
+# Intermediate: Sentences grouped by topic (MemoryDataset)
+sentences_by_topic:
+  type: MemoryDataset
+
+# Intermediate: Mentions mapped to sentences (MemoryDataset)
+mentions_by_sentence:
+  type: MemoryDataset
+
+# Intermediate: Sentence pairs with similarities
+sentence_pairs_with_similarity:
+  type: pandas.ParquetDataset
+  filepath: data/04_feature/sentence_pairs_with_similarity.parquet
+  save_args:
+    compression: snappy
+
+# Intermediate: Mention pairs created from sentence pairs
+mention_pairs_from_sentences:
+  type: pandas.ParquetDataset
+  filepath: data/04_feature/mention_pairs_from_sentences.parquet
+  save_args:
+    compression: snappy
+
+# Output: Selected hard pairs (final output)
+selected_pairs:
+  type: pandas.ParquetDataset
+  filepath: data/05_model_input/selected_pairs.parquet
+  save_args:
+    compression: snappy

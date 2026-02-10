@@ -6,9 +6,15 @@ sbert_model_name: "sentence-transformers/all-mpnet-base-v2"
 # Batch size for similarity computation (prevents OOM on large topics)
 # Processes this many sentences at a time when computing pairwise similarities
 # Lower values use less memory but take longer; higher values are faster but need more memory
-# Default: 1000 sentences per batch
-similarity_batch_size: 1000
+# HEAVILY REDUCED: 100 sentences per batch (was 250) to prevent OOM errors
+similarity_batch_size: 100
 
 # Additional sampling configuration
 # Set to false initially to see the full distribution of pairs by topic
 additional_sampling: false
+
+# Balanced sampling per dataset
+# Target: 50,000 pairs per dataset (4,545 positive + 45,455 negative)
+n_positive_per_dataset: 4545
+n_negative_per_dataset: 45455
+random_seed: 42

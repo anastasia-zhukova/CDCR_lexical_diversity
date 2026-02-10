@@ -16,6 +16,7 @@ dependencies = [
     "jupyterlab>=3.0",
     "notebook",
     "kedro~=1.2.0",
+    "psutil>=5.9.0",  # For memory monitoring
 ]
 
 [project.scripts]

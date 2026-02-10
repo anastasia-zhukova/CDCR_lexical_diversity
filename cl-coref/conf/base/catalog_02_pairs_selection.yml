@@ -6,25 +6,47 @@
 sentences_by_topic:
   type: MemoryDataset
 
-# Intermediate: Mentions mapped to sentences (MemoryDataset)
+# Intermediate: Mentions mapped to sentences (saved to disk for resumability)
 mentions_by_sentence:
-  type: MemoryDataset
+  type: pickle.PickleDataset
+  filepath: data/04_feature/mentions_by_sentence.pickle
 
-# Intermediate: Sentence pairs with similarities
+# Intermediate: Sentence pairs with similarities (partitioned for large data)
 sentence_pairs_with_similarity:
-  type: pandas.ParquetDataset
-  filepath: data/04_feature/sentence_pairs_with_similarity.parquet
-  save_args:
-    compression: snappy
+  type: partitions.PartitionedDataset
+  path: data/04_feature/sentence_pairs_with_similarity
+  dataset: pandas.ParquetDataset
+  filename_suffix: ".parquet"
 
-# Intermediate: Mention pairs created from sentence pairs
+# Intermediate: Mention pairs created from sentence pairs (partitioned for large data)
 mention_pairs_from_sentences:
-  type: pandas.ParquetDataset
-  filepath: data/04_feature/mention_pairs_from_sentences.parquet
-  save_args:
-    compression: snappy
+  type: partitions.PartitionedDataset
+  path: data/04_feature/mention_pairs_from_sentences
+  dataset: pandas.ParquetDataset
+  filename_suffix: ".parquet"
 
-# Output: Selected hard pairs (final output)
+# Output: Summary statistics at dataset level
+pairs_summary_stats:
+  type: pandas.CSVDataset
+  filepath: data/08_reporting/pairs_summary_stats.csv
+  save_args:
+    index: false
+
+# Output: Filtered pairs by similarity quantiles (per dataset)
+pairs_filtered_by_similarity_quantiles:
+  type: partitions.PartitionedDataset
+  path: data/04_feature/pairs_filtered_by_similarity_quantiles
+  dataset: pandas.CSVDataset
+  filename_suffix: ".csv"
+
+# Output: Balanced sampled pairs (4,545 positive + 45,455 negative per dataset)
+pairs_sampled_balanced:
+  type: pandas.CSVDataset
+  filepath: data/04_feature/pairs_sampled_balanced.csv
+  save_args:
+    index: false
+
+# Output: Selected hard pairs (DISABLED - for future use)
 selected_pairs:
   type: pandas.ParquetDataset
   filepath: data/05_model_input/selected_pairs.parquet

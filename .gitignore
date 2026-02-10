@@ -32,3 +32,6 @@ MBIB-main
 CL_COREF/data
 CL_COREF/logs
 CL_COREF/wandb
+cl-coref/wandb
+cl-coref/logs
+cl-coref/predictions

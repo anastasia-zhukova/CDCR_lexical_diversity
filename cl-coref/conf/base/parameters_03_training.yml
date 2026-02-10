@@ -1,0 +1,43 @@
+# Parameters for Pipeline 03: Training
+
+# Dataset to train on
+training_dataset: "ECBplus"
+
+# Training configuration
+training_config:
+  # Model settings
+  language_model: "roberta-large"  # Only roberta-large is supported by the existing code
+  sentence_transformer_model: "sentence-transformers/all-mpnet-base-v2"
+  learning_rate: 2.0e-7  # Conservative LR matching original CL_COREF
+  max_length: 128  # Total tokens for document_context + mention_context concatenation
+
+  # Training settings
+  num_epochs: 1
+  train_batch_size: 16  # Increased due to shorter sequences (128 vs 512 tokens)
+  val_batch_size: 64   # Increased for faster validation
+  gradient_clip_val: 1.0
+  accumulate_grad_batches: 1  # No accumulation needed with batch_size=16
+
+  # Hardware settings
+  accelerator: "gpu"
+  devices: 1
+  precision: "16-mixed"
+
+  # Checkpoint settings
+  monitor_metric: "val_f1_conll"
+  save_top_k: 1
+
+  # Logging
+  log_every_n_steps: 50
+
+  # Data settings
+  # Use 'sent' to get mention_context (which has [E] markers)
+  # Use 'doc' to get document_context (which doesn't have [E] markers)
+  context_method: "sent"  # MUST be 'sent' for siamese network with special tokens
+  special_tokens: ["E"]
+
+  # Validation clustering settings
+  # Clustering threshold for hierarchical clustering (distance threshold)
+  # Lower = more clusters, Higher = fewer clusters
+  # 0.5 is standard for cosine distance (1 - cosine_similarity)
+  similarity_threshold: 0.5

@@ -13,6 +13,9 @@ from .nodes import (
     prepare_sentences_by_topic,
     encode_sentences_by_topic,
     create_mention_pairs_from_sentences,
+    compute_pairs_summary_stats,
+    filter_pairs_by_similarity_quantiles,
+    sample_balanced_pairs_per_dataset,
     select_hard_pairs_sentence_based,
 )
 
@@ -26,9 +29,14 @@ def create_pipeline(**kwargs) -> Pipeline:
     2. Encodes sentences with SBERT and computes sentence-pair similarities
     3. Creates mention pairs via Cartesian product of mentions in sentence pairs
        - Assigns sentence similarity to all mention pairs
-       - Reports statistics by dataset and entity_style
-
-    Note: Node 4 (hard mining) is excluded to see total pair counts first.
+    4. Computes summary statistics at dataset level
+       - Count of pairs by (dataset, is_positive)
+       - Similarity quantiles: 0.25, 0.50, 0.75 and mean
+    5. Filters pairs by similarity quantiles (per dataset):
+       - Positive pairs: keep similarity < 65th percentile
+       - Negative pairs: keep similarity > 96th percentile
+    6. Samples balanced pairs per dataset:
+       - 4,545 positive pairs + 45,455 negative pairs = 50,000 total per dataset
 
     Returns:
         Pipeline: The Kedro pipeline
@@ -60,11 +68,11 @@ def create_pipeline(**kwargs) -> Pipeline:
                 tags=["encode", "pairs_selection"],
             ),
             # Node 3: Create mention pairs from sentence pairs
-            # This will output statistics by dataset and entity_style
+            # Uses PartitionedDataset to avoid OOM from concatenating 113M+ rows
             node(
                 func=create_mention_pairs_from_sentences,
                 inputs={
-                    "sentence_pairs_df": "sentence_pairs_with_similarity",
+                    "sentence_pairs_dict": "sentence_pairs_with_similarity",
                     "mentions_by_sentence": "mentions_by_sentence",
                     "mentions_df": "mentions_for_pairs",
                 },
@@ -72,7 +80,40 @@ def create_pipeline(**kwargs) -> Pipeline:
                 name="create_mention_pairs_from_sentences_node",
                 tags=["pairs", "pairs_selection"],
             ),
-            # Node 4: DISABLED - Select hard pairs
+            # Node 4: Compute summary statistics at dataset level
+            node(
+                func=compute_pairs_summary_stats,
+                inputs={
+                    "mention_pairs_dict": "mention_pairs_from_sentences",
+                },
+                outputs="pairs_summary_stats",
+                name="compute_pairs_summary_stats_node",
+                tags=["stats", "pairs_selection"],
+            ),
+            # Node 5: Filter pairs by similarity quantiles
+            node(
+                func=filter_pairs_by_similarity_quantiles,
+                inputs={
+                    "mention_pairs_dict": "mention_pairs_from_sentences",
+                },
+                outputs="pairs_filtered_by_similarity_quantiles",
+                name="filter_pairs_by_similarity_quantiles_node",
+                tags=["filter", "pairs_selection"],
+            ),
+            # Node 6: Sample balanced pairs per dataset (4,545 positive + 45,455 negative)
+            node(
+                func=sample_balanced_pairs_per_dataset,
+                inputs={
+                    "filtered_pairs_dict": "pairs_filtered_by_similarity_quantiles",
+                    "n_positive_per_dataset": "params:n_positive_per_dataset",
+                    "n_negative_per_dataset": "params:n_negative_per_dataset",
+                    "random_seed": "params:random_seed",
+                },
+                outputs="pairs_sampled_balanced",
+                name="sample_balanced_pairs_per_dataset_node",
+                tags=["sample", "pairs_selection"],
+            ),
+            # Node 7: DISABLED - Select hard pairs
             # Uncomment when ready to apply hard mining filters
             # node(
             #     func=select_hard_pairs_sentence_based,

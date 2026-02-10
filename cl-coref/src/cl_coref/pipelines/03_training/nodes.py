@@ -13,6 +13,7 @@ import gc
 import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
+from datetime import datetime
 
 import pandas as pd
 import numpy as np
@@ -456,12 +457,19 @@ def train_siamese_network(
     )
 
     # Weights & Biases logger
+    # Create run name with dataset, epochs, and date
+    current_date = datetime.now().strftime("%Y%m%d")
+    num_epochs = config['num_epochs']
+    run_name = f"{dataset_name}_{config['language_model']}_ep{num_epochs}_{current_date}"
+
     wandb_logger = WandbLogger(
         project="cdcr-lexical-diversity",
-        name=f"{dataset_name}_{config['language_model']}",
+        name=run_name,
         config=config,
         log_model=False
     )
+
+    logger.info(f"W&B run name: {run_name}")
 
     # Step 7: Create trainer
     logger.info("Creating Lightning Trainer...")

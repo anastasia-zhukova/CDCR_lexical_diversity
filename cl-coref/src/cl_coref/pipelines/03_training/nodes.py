@@ -37,6 +37,144 @@ from .datamodule import CorefDataModule
 logger = logging.getLogger(__name__)
 
 
+def custom_tokenize_with_special_tokens(
+    tokenizer,
+    doc_context: str,
+    mention_context: str,
+    max_length: int = 128
+) -> dict:
+    """
+    Custom tokenization that preserves [E] and [/E] markers even when truncating.
+
+    Strategy:
+    1. Tokenize mention_context separately to find [E] and [/E] positions
+    2. If mention_context is too long, truncate it but preserve [E] markers
+    3. Allocate remaining space to doc_context
+    4. Combine sequences manually
+
+    Args:
+        tokenizer: HuggingFace tokenizer
+        doc_context: Document context text (first sequence)
+        mention_context: Mention context with [E] markers (second sequence)
+        max_length: Maximum total sequence length
+
+    Returns:
+        Dict with 'input_ids' and 'attention_mask'
+    """
+    # Account for special tokens: <s> text </s> </s> text_pair </s>
+    # RoBERTa uses: <s> (1 token) + text + </s> (1 token) + </s> (1 token) + text_pair + </s> (1 token)
+    # Total special tokens: 4
+    special_tokens_count = 4
+    max_tokens_for_text = max_length - special_tokens_count
+
+    # Tokenize mention_context to find [E] markers
+    mention_tokens = tokenizer.encode(mention_context, add_special_tokens=False)
+
+    # Find [E] and [/E] token IDs
+    e_start_id = tokenizer.convert_tokens_to_ids('[E]')
+    e_end_id = tokenizer.convert_tokens_to_ids('[/E]')
+
+    # Find positions of [E] markers in mention_context
+    try:
+        e_start_pos = mention_tokens.index(e_start_id)
+        e_end_pos = mention_tokens.index(e_end_id)
+    except ValueError:
+        # If markers not found, fall back to regular truncation
+        return tokenizer(
+            text=doc_context,
+            text_pair=mention_context,
+            padding='max_length',
+            max_length=max_length,
+            truncation='longest_first',
+            return_tensors=None
+        )
+
+    # Calculate how much space mention_context needs
+    mention_len = len(mention_tokens)
+
+    # If mention_context fits, allocate rest to doc_context
+    if mention_len <= max_tokens_for_text:
+        doc_max_len = max_tokens_for_text - mention_len
+        doc_tokens = tokenizer.encode(doc_context, add_special_tokens=False)
+
+        # Truncate doc_context if needed
+        if len(doc_tokens) > doc_max_len:
+            doc_tokens = doc_tokens[:doc_max_len]
+    else:
+        # Mention context is too long - truncate it while preserving [E] markers
+        # Strategy: Keep tokens around [E] markers, truncate the rest
+
+        # Calculate how many tokens we can keep from mention_context
+        # Reserve at least 20 tokens for doc_context (arbitrary but reasonable)
+        min_doc_tokens = min(20, max_tokens_for_text // 4)
+        mention_max_len = max_tokens_for_text - min_doc_tokens
+
+        # We need to preserve [E] and [/E] and some context around them
+        # Calculate how many tokens we can keep before and after
+        tokens_before_e = e_start_pos
+        tokens_in_e = e_end_pos - e_start_pos + 1
+        tokens_after_e = mention_len - e_end_pos - 1
+
+        # If mention span with markers fits, center the truncation around it
+        if tokens_in_e < mention_max_len:
+            remaining_space = mention_max_len - tokens_in_e
+
+            # Try to keep some context before and after [E] markers
+            keep_before = min(tokens_before_e, remaining_space // 2)
+            keep_after = min(tokens_after_e, remaining_space - keep_before)
+
+            # Adjust keep_before if we have extra space
+            if keep_after < tokens_after_e:
+                keep_before = min(tokens_before_e, remaining_space - keep_after)
+
+            # Extract the preserved tokens
+            start_idx = e_start_pos - keep_before
+            end_idx = e_end_pos + 1 + keep_after
+            mention_tokens = mention_tokens[start_idx:end_idx]
+        else:
+            # Even the mention span is too long, truncate within it
+            # Keep [E] at start and [/E] at end, truncate middle
+            keep_start = mention_max_len // 2
+            keep_end = mention_max_len - keep_start
+            mention_tokens = (
+                mention_tokens[e_start_pos:e_start_pos + keep_start] +
+                mention_tokens[e_end_pos + 1 - keep_end:e_end_pos + 1]
+            )
+
+        # Now truncate doc_context to fit remaining space
+        doc_max_len = max_tokens_for_text - len(mention_tokens)
+        doc_tokens = tokenizer.encode(doc_context, add_special_tokens=False)
+        if len(doc_tokens) > doc_max_len:
+            doc_tokens = doc_tokens[:doc_max_len]
+
+    # Manually construct the sequence: <s> doc_tokens </s> </s> mention_tokens </s>
+    input_ids = (
+        [tokenizer.bos_token_id] +
+        doc_tokens +
+        [tokenizer.eos_token_id] +
+        [tokenizer.eos_token_id] +  # RoBERTa uses double </s> between sequences
+        mention_tokens +
+        [tokenizer.eos_token_id]
+    )
+
+    # Pad to max_length
+    attention_mask = [1] * len(input_ids)
+    padding_length = max_length - len(input_ids)
+
+    if padding_length > 0:
+        input_ids += [tokenizer.pad_token_id] * padding_length
+        attention_mask += [0] * padding_length
+    elif padding_length < 0:
+        # Truncate if somehow we exceeded max_length
+        input_ids = input_ids[:max_length]
+        attention_mask = attention_mask[:max_length]
+
+    return {
+        'input_ids': input_ids,
+        'attention_mask': attention_mask
+    }
+
+
 class PairsDataset(Dataset):
     """
     PyTorch Dataset for mention pairs with representations.
@@ -68,22 +206,19 @@ class PairsDataset(Dataset):
         doc_context2 = row['mention2_doc_context']
         mention_context2 = row['mention2_mention_context']
 
-        # Tokenize using text_pair to concatenate contexts
-        # truncation="only_first" ensures [E] markers in mention_context are preserved
-        tokenized1 = self.tokenizer(
-            text=doc_context1,
-            text_pair=mention_context1,
-            padding='max_length',
-            max_length=self.max_length,
-            truncation='only_first'  # Only truncate document_context, not mention_context
+        # Use custom tokenization that preserves [E] markers
+        tokenized1 = custom_tokenize_with_special_tokens(
+            self.tokenizer,
+            doc_context1,
+            mention_context1,
+            max_length=self.max_length
         )
 
-        tokenized2 = self.tokenizer(
-            text=doc_context2,
-            text_pair=mention_context2,
-            padding='max_length',
-            max_length=self.max_length,
-            truncation='only_first'
+        tokenized2 = custom_tokenize_with_special_tokens(
+            self.tokenizer,
+            doc_context2,
+            mention_context2,
+            max_length=self.max_length
         )
 
         # Convert label to float
@@ -120,14 +255,12 @@ class ValidationMentionsDataset(Dataset):
         doc_context = row['document_context']
         mention_context = row['mention_context']
 
-        # Tokenize using text_pair to concatenate contexts
-        # truncation="only_first" ensures [E] markers in mention_context are preserved
-        tokenized = self.tokenizer(
-            text=doc_context,
-            text_pair=mention_context,
-            padding='max_length',
-            max_length=self.max_length,
-            truncation='only_first'
+        # Use custom tokenization that preserves [E] markers
+        tokenized = custom_tokenize_with_special_tokens(
+            self.tokenizer,
+            doc_context,
+            mention_context,
+            max_length=self.max_length
         )
 
         return idx, tokenized
@@ -170,28 +303,83 @@ logger = logging.getLogger(__name__)
 def filter_pairs_by_dataset(
     pairs_dict: pd.DataFrame,
     mentions_df: pd.DataFrame,
-    dataset_name: str
+    dataset_name: str,
+    training_mode: str = "single"
 ) -> pd.DataFrame:
     """
-    Filter pairs to a specific dataset and join with mention metadata.
+    Filter pairs to a specific dataset or all datasets except one.
 
     Args:
         pairs_dict: DataFrame with columns: dataset, mention1_id, mention2_id, is_positive, similarity
         mentions_df: DataFrame with mention_id, dataset_name, split, etc.
-        dataset_name: Name of dataset to filter to (e.g., "ECBplus")
+        dataset_name: Name of dataset (meaning depends on training_mode)
+        training_mode: "single" (train on one dataset) or "all_but" (train on all except one)
 
     Returns:
         DataFrame with filtered pairs including split information
     """
-    logger.info(f"Filtering pairs to dataset: {dataset_name}")
+    # Datasets with train splits
+    DATASETS_WITH_TRAIN = ["CD2CR", "CEREC", "ECBplus", "FCC", "GVC", "HyperCoref", "NiDENT", "NP4E", "WECEng"]
 
-    # Filter to specific dataset
-    pairs_df = pairs_dict[pairs_dict['dataset'] == dataset_name].copy()
+    if training_mode == "single":
+        logger.info(f"Training mode: single dataset - {dataset_name}")
 
-    if len(pairs_df) == 0:
-        raise ValueError(f"No pairs found for dataset: {dataset_name}")
+        # Filter to specific dataset
+        pairs_df = pairs_dict[pairs_dict['dataset'] == dataset_name].copy()
 
-    logger.info(f"Loaded {len(pairs_df):,} pairs for {dataset_name}")
+        if len(pairs_df) == 0:
+            raise ValueError(f"No pairs found for dataset: {dataset_name}")
+
+        logger.info(f"Loaded {len(pairs_df):,} pairs for {dataset_name}")
+
+    elif training_mode == "all_but":
+        logger.info(f"Training mode: all-but - excluding {dataset_name}")
+
+        # Get all datasets except the excluded one
+        participating_datasets = [d for d in DATASETS_WITH_TRAIN if d != dataset_name]
+        logger.info(f"Participating datasets: {participating_datasets}")
+
+        # Sample pairs from each participating dataset
+        TARGET_TOTAL_PAIRS = 50000
+        pairs_per_dataset = TARGET_TOTAL_PAIRS // len(participating_datasets)
+
+        logger.info(f"Target: {TARGET_TOTAL_PAIRS:,} total pairs, ~{pairs_per_dataset:,} per dataset")
+
+        sampled_pairs_list = []
+
+        for dataset in participating_datasets:
+            # Get all pairs for this dataset
+            dataset_pairs = pairs_dict[pairs_dict['dataset'] == dataset].copy()
+
+            if len(dataset_pairs) == 0:
+                logger.warning(f"No pairs found for dataset: {dataset}, skipping")
+                continue
+
+            # Separate positive and negative pairs
+            pos_pairs = dataset_pairs[dataset_pairs['is_positive'] == True]
+            neg_pairs = dataset_pairs[dataset_pairs['is_positive'] == False]
+
+            # Calculate target with 1:10 ratio
+            target_pos = pairs_per_dataset // 11  # 1 out of 11 parts
+            target_neg = pairs_per_dataset - target_pos  # 10 out of 11 parts
+
+            # Sample (or take all if not enough)
+            sampled_pos = pos_pairs.sample(n=min(target_pos, len(pos_pairs)), random_state=42)
+            sampled_neg = neg_pairs.sample(n=min(target_neg, len(neg_pairs)), random_state=42)
+
+            sampled_dataset_pairs = pd.concat([sampled_pos, sampled_neg], ignore_index=True)
+
+            logger.info(f"  {dataset}: sampled {len(sampled_dataset_pairs):,} pairs "
+                       f"({len(sampled_pos):,} pos, {len(sampled_neg):,} neg)")
+
+            sampled_pairs_list.append(sampled_dataset_pairs)
+
+        # Combine all sampled pairs
+        pairs_df = pd.concat(sampled_pairs_list, ignore_index=True)
+        logger.info(f"Total sampled pairs: {len(pairs_df):,}")
+
+    else:
+        raise ValueError(f"Invalid training_mode: {training_mode}. Must be 'single' or 'all_but'")
 
     # Join with mentions to get split information
     # Create mention lookup for split
@@ -289,7 +477,8 @@ def prepare_training_data(
 def prepare_validation_mentions(
     mentions_df: pd.DataFrame,
     mention_representations: pd.DataFrame,
-    dataset_name: str
+    dataset_name: str,
+    training_mode: str = "single"
 ) -> pd.DataFrame:
     """
     Prepare all validation mentions with their representations for evaluation.
@@ -297,24 +486,46 @@ def prepare_validation_mentions(
     Args:
         mentions_df: DataFrame with mention metadata
         mention_representations: DataFrame with mention representations
-        dataset_name: Name of dataset to filter to
+        dataset_name: Name of dataset (meaning depends on training_mode)
+        training_mode: "single" (validate on one dataset) or "all_but" (validate on all except one)
 
     Returns:
         DataFrame with all validation mentions and their representations
     """
-    logger.info(f"Preparing validation mentions for {dataset_name}")
-
     # Drop duplicate mention_ids (keep first occurrence)
     mention_representations_unique = mention_representations.drop_duplicates(subset='mention_id', keep='first')
     logger.info(f"Mention representations: {len(mention_representations):,} total, {len(mention_representations_unique):,} unique")
 
-    # Filter to validation split and specific dataset
-    val_mentions = mentions_df[
-        (mentions_df['split'] == 'val') &
-        (mentions_df['dataset_name'] == dataset_name)
-    ].copy()
+    if training_mode == "single":
+        logger.info(f"Preparing validation mentions for {dataset_name}")
 
-    logger.info(f"Validation mentions for {dataset_name}: {len(val_mentions):,}")
+        # Filter to validation split and specific dataset
+        val_mentions = mentions_df[
+            (mentions_df['split'] == 'val') &
+            (mentions_df['dataset_name'] == dataset_name)
+        ].copy()
+
+        logger.info(f"Validation mentions for {dataset_name}: {len(val_mentions):,}")
+
+    elif training_mode == "all_but":
+        logger.info(f"Preparing validation mentions for all-but-{dataset_name}")
+
+        # Filter to validation split, excluding the specified dataset
+        val_mentions = mentions_df[
+            (mentions_df['split'] == 'val') &
+            (mentions_df['dataset_name'] != dataset_name)
+        ].copy()
+
+        logger.info(f"Validation mentions (excluding {dataset_name}): {len(val_mentions):,}")
+
+        # Log per-dataset statistics
+        logger.info("Validation mentions by dataset:")
+        for ds_name in sorted(val_mentions['dataset_name'].unique()):
+            ds_count = len(val_mentions[val_mentions['dataset_name'] == ds_name])
+            logger.info(f"  {ds_name}: {ds_count:,} mentions")
+
+    else:
+        raise ValueError(f"Invalid training_mode: {training_mode}. Must be 'single' or 'all_but'")
 
     # Join with representations
     val_mentions = val_mentions.merge(
@@ -322,6 +533,11 @@ def prepare_validation_mentions(
         on='mention_id',
         how='inner'
     )
+
+    # Normalize columns with mixed types across datasets (int vs str) for parquet compatibility
+    for col in ['topic_id', 'topic', 'subtopic', 'coref_chain']:
+        if col in val_mentions.columns:
+            val_mentions[col] = val_mentions[col].astype(str)
 
     logger.info(f"After joining with representations: {len(val_mentions):,} mentions")
 
@@ -336,7 +552,8 @@ def train_siamese_network(
     train_data: pd.DataFrame,
     val_mentions: pd.DataFrame,
     config: Dict,
-    dataset_name: str
+    dataset_name: str,
+    training_mode: str = "single"
 ) -> Dict:
     """
     Train siamese network using PyTorch Lightning.
@@ -347,17 +564,24 @@ def train_siamese_network(
         train_data: Training pairs with representations
         val_mentions: All validation mentions with representations (for clustering evaluation)
         config: Training configuration dict
-        dataset_name: Name of dataset being trained on
+        dataset_name: Name of dataset (meaning depends on training_mode)
+        training_mode: "single" or "all_but"
 
     Returns:
         Dict with training results and model checkpoint path
     """
+    # Construct the effective dataset name for logging and checkpoints
+    if training_mode == "all_but":
+        effective_name = f"all-but-{dataset_name}"
+    else:
+        effective_name = dataset_name
+
     logger.info("="*80)
-    logger.info(f"TRAINING SIAMESE NETWORK FOR {dataset_name}")
+    logger.info(f"TRAINING SIAMESE NETWORK FOR {effective_name}")
     logger.info("="*80)
 
     logger.info(f"\nTraining configuration:")
-    logger.info(f"  Dataset: {dataset_name}")
+    logger.info(f"  Dataset: {effective_name}")
     logger.info(f"  Train pairs (for pairwise training): {len(train_data):,}")
     logger.info(f"    Positive: {train_data['is_positive'].sum():,}")
     logger.info(f"    Negative: {(~train_data['is_positive']).sum():,}")
@@ -418,7 +642,7 @@ def train_siamese_network(
         train_loader=train_loader,
         val_loader=val_loader,
         val_mentions_df=val_mentions,
-        dataset_name=dataset_name
+        dataset_name=effective_name
     )
     datamodule.setup("fit")
 
@@ -438,12 +662,12 @@ def train_siamese_network(
     logger.info("Setting up callbacks and loggers...")
 
     # Model checkpoint
-    checkpoint_dir = Path("data/06_models") / dataset_name
+    checkpoint_dir = Path("data/06_models") / effective_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=str(checkpoint_dir),
-        filename=f"siamese_model_{dataset_name}_{{epoch:02d}}_{{val_f1_conll:.2f}}",
+        filename=f"siamese_model_{effective_name}_{{epoch:02d}}_{{val_f1_conll:.2f}}",
         monitor="val_f1_conll",
         mode='max',
         save_top_k=config.get('save_top_k', 1),
@@ -453,14 +677,14 @@ def train_siamese_network(
     # TensorBoard logger
     tb_logger = TensorBoardLogger(
         save_dir="logs",
-        name=f"{dataset_name}_{config['language_model']}"
+        name=f"{effective_name}_{config['language_model']}"
     )
 
     # Weights & Biases logger
     # Create run name with dataset, epochs, and date
     current_date = datetime.now().strftime("%Y%m%d")
     num_epochs = config['num_epochs']
-    run_name = f"{dataset_name}_{config['language_model']}_ep{num_epochs}_{current_date}"
+    run_name = f"{effective_name}_{config['language_model']}_ep{num_epochs}_{current_date}"
 
     wandb_logger = WandbLogger(
         project="cdcr-lexical-diversity",
@@ -508,7 +732,9 @@ def train_siamese_network(
 
     return {
         "status": "completed",
-        "dataset": dataset_name,
+        "dataset": effective_name,
+        "training_mode": training_mode,
+        "dataset_name": dataset_name,  # Original dataset name (single: trained on, all_but: excluded)
         "train_pairs": len(train_data),
         "val_mentions": len(val_mentions),
         "best_model_path": best_model_path,

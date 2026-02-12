@@ -33,13 +33,14 @@ def create_pipeline(**kwargs) -> Pipeline:
     """
     return pipeline(
         [
-            # Node 1: Filter pairs to specific dataset
+            # Node 1: Filter pairs to specific dataset or all-but
             node(
                 func=filter_pairs_by_dataset,
                 inputs={
                     "pairs_dict": "pairs_sampled_balanced",
                     "mentions_df": "mentions_for_pairs",
                     "dataset_name": "params:training_dataset",
+                    "training_mode": "params:training_mode",
                 },
                 outputs="dataset_filtered_pairs",
                 name="filter_pairs_by_dataset_node",
@@ -63,6 +64,7 @@ def create_pipeline(**kwargs) -> Pipeline:
                     "mentions_df": "mentions_for_pairs",
                     "mention_representations": "mention_representations",
                     "dataset_name": "params:training_dataset",
+                    "training_mode": "params:training_mode",
                 },
                 outputs="val_mentions_with_repr",
                 name="prepare_validation_mentions_node",
@@ -76,6 +78,7 @@ def create_pipeline(**kwargs) -> Pipeline:
                     "val_mentions": "val_mentions_with_repr",
                     "config": "params:training_config",
                     "dataset_name": "params:training_dataset",
+                    "training_mode": "params:training_mode",
                 },
                 outputs="training_results",
                 name="train_siamese_network_node",

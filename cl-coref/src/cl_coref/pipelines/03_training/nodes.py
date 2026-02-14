@@ -319,7 +319,7 @@ def filter_pairs_by_dataset(
         DataFrame with filtered pairs including split information
     """
     # Datasets with train splits
-    DATASETS_WITH_TRAIN = ["CD2CR", "CEREC", "ECBplus", "FCC", "GVC", "HyperCoref", "NiDENT", "NP4E", "WECEng"]
+    DATASETS_WITH_TRAIN = ["ECBplus", "GVC", "HyperCoref", "NiDENT", "NP4E", "WECEng"]
 
     if training_mode == "single":
         logger.info(f"Training mode: single dataset - {dataset_name}")

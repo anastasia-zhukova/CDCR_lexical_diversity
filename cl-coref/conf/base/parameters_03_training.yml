@@ -3,7 +3,7 @@
 # Training mode: "single" or "all_but"
 # - "single": Train on a single dataset specified by training_dataset
 # - "all_but": Train on all datasets EXCEPT the one specified by training_dataset
-training_mode: "all_but"  # "single" or "all_but"
+training_mode: "GVC"  # "single" or "all_but"
 
 # Dataset parameter (meaning depends on training_mode)
 # - In "single" mode: the dataset to train on
@@ -11,23 +11,21 @@ training_mode: "all_but"  # "single" or "all_but"
 training_dataset: "ECBplus"
 #"ECBplus"
 #"GVC"
-#"FCC"
 #"HyperCoref"
 #"WECEng"
-#"CD2CR"
-#"CEREC"
 #"NiDENT"
 #"NP4E"
 
 # Datasets with train splits (for reference, used in all_but mode)
-# CD2CR, CEREC, ECBplus, FCC, GVC, HyperCoref, NiDENT, NP4E, WECEng
+# ECBplus, GVC, HyperCoref, NiDENT, NP4E, WECEng (6 total)
 # Datasets without train splits (never used in training): NewsWCL50, ECBplusMETAm
 #
 # How "all_but" mode works:
 # - Training: Samples 50,000 pairs total from all datasets with train splits EXCEPT the excluded one
-#   - Pairs distributed equally across participating datasets (~6,250 per dataset if 8 participate)
+#   - Pairs distributed equally across participating datasets (~10,000 per dataset if 5 participate)
 #   - Maintains 1:10 positive:negative ratio per dataset
 # - Validation: Uses ALL validation mentions from all datasets EXCEPT the excluded one
+#   - This includes NewsWCL50 and ECBplusMETAm (which have no train data but do have validation data)
 # - Checkpoints saved to: data/06_models/all-but-{excluded_dataset}/
 # - Special cases: all-but-NewsWCL50 and all-but-ECBplusMETAm have identical training data
 #   (since these datasets don't have train splits), but different validation data

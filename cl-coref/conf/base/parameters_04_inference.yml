@@ -1,0 +1,35 @@
+# Parameters for Pipeline 04: Inference
+
+# Training configuration name (determines which model checkpoint to use and output directory structure)
+# Format options:
+#   - "single-{dataset}": Model trained on single dataset (e.g., "single-ECBplus", "single-GVC")
+#   - "excluding_target-{dataset}": Model trained on all-but-one (e.g., "excluding_target-ECBplus")
+#   - "mix": Model trained on all datasets
+training_config: "single-ECBplus"
+
+# Path to trained model checkpoint
+# This should point to the best checkpoint from training
+# Example: "data/06_models/mix/checkpoints/best_model.ckpt"
+model_checkpoint_path: "data/06_models/ECBplus/siamese_model_ECBplus_epoch=06_val_f1_conll=44.23.ckpt"
+
+# Inference configuration
+inference_config:
+  # Clustering threshold (cosine distance)
+  # Should match the threshold used during training/validation
+  similarity_threshold: 0.5
+
+  # Base output directory for CoNLL files
+  # Files will be written to: {output_base_dir}/{training_config}/{dataset}/{mode}/
+  # where mode is Events, Entities, or Mix
+  output_base_dir: "data/07_model_output"
+
+# Notes:
+# - Inference evaluates on ALL 8 test datasets (including ECBplusMETAm and NewsWCL50)
+# - For each dataset, three modes are processed:
+#     1. Events: Only event mentions (entity_style='event')
+#     2. Entities: Only entity mentions (entity_style='entity')
+#     3. Mix: Both event and entity mentions combined
+# - Clustering is performed independently within each subtopic
+# - Output files follow the format required by the CoNLL scorer:
+#     - key.conll: Gold standard clusters
+#     - response.conll: Predicted clusters

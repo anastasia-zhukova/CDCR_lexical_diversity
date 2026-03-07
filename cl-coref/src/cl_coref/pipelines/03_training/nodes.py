@@ -307,13 +307,13 @@ def filter_pairs_by_dataset(
     training_mode: str = "single"
 ) -> pd.DataFrame:
     """
-    Filter pairs to a specific dataset or all datasets except one.
+    Filter pairs to a specific dataset, all datasets except one, or all datasets.
 
     Args:
         pairs_dict: DataFrame with columns: dataset, mention1_id, mention2_id, is_positive, similarity
         mentions_df: DataFrame with mention_id, dataset_name, split, etc.
-        dataset_name: Name of dataset (meaning depends on training_mode)
-        training_mode: "single" (train on one dataset) or "all_but" (train on all except one)
+        dataset_name: Name of dataset (meaning depends on training_mode). Ignored in "all" mode.
+        training_mode: "single" (train on one dataset), "all_but" (train on all except one), or "all" (train on all datasets)
 
     Returns:
         DataFrame with filtered pairs including split information
@@ -378,8 +378,54 @@ def filter_pairs_by_dataset(
         pairs_df = pd.concat(sampled_pairs_list, ignore_index=True)
         logger.info(f"Total sampled pairs: {len(pairs_df):,}")
 
+    elif training_mode == "all":
+        logger.info(f"Training mode: all datasets")
+
+        # Use ALL datasets with train splits
+        participating_datasets = DATASETS_WITH_TRAIN
+        logger.info(f"Participating datasets: {participating_datasets}")
+
+        # Sample pairs from each dataset
+        TARGET_TOTAL_PAIRS = 50000
+        pairs_per_dataset = TARGET_TOTAL_PAIRS // len(participating_datasets)
+
+        logger.info(f"Target: {TARGET_TOTAL_PAIRS:,} total pairs, ~{pairs_per_dataset:,} per dataset")
+
+        sampled_pairs_list = []
+
+        for dataset in participating_datasets:
+            # Get all pairs for this dataset
+            dataset_pairs = pairs_dict[pairs_dict['dataset'] == dataset].copy()
+
+            if len(dataset_pairs) == 0:
+                logger.warning(f"No pairs found for dataset: {dataset}, skipping")
+                continue
+
+            # Separate positive and negative pairs
+            pos_pairs = dataset_pairs[dataset_pairs['is_positive'] == True]
+            neg_pairs = dataset_pairs[dataset_pairs['is_positive'] == False]
+
+            # Calculate target with 1:10 ratio
+            target_pos = pairs_per_dataset // 11  # 1 out of 11 parts
+            target_neg = pairs_per_dataset - target_pos  # 10 out of 11 parts
+
+            # Sample (or take all if not enough)
+            sampled_pos = pos_pairs.sample(n=min(target_pos, len(pos_pairs)), random_state=42)
+            sampled_neg = neg_pairs.sample(n=min(target_neg, len(neg_pairs)), random_state=42)
+
+            sampled_dataset_pairs = pd.concat([sampled_pos, sampled_neg], ignore_index=True)
+
+            logger.info(f"  {dataset}: sampled {len(sampled_dataset_pairs):,} pairs "
+                       f"({len(sampled_pos):,} pos, {len(sampled_neg):,} neg)")
+
+            sampled_pairs_list.append(sampled_dataset_pairs)
+
+        # Combine all sampled pairs
+        pairs_df = pd.concat(sampled_pairs_list, ignore_index=True)
+        logger.info(f"Total sampled pairs: {len(pairs_df):,}")
+
     else:
-        raise ValueError(f"Invalid training_mode: {training_mode}. Must be 'single' or 'all_but'")
+        raise ValueError(f"Invalid training_mode: {training_mode}. Must be 'single', 'all_but', or 'all'")
 
     # Join with mentions to get split information
     # Create mention lookup for split
@@ -486,8 +532,8 @@ def prepare_validation_mentions(
     Args:
         mentions_df: DataFrame with mention metadata
         mention_representations: DataFrame with mention representations
-        dataset_name: Name of dataset (meaning depends on training_mode)
-        training_mode: "single" (validate on one dataset) or "all_but" (validate on all except one)
+        dataset_name: Name of dataset (meaning depends on training_mode). Ignored in "all" mode.
+        training_mode: "single" (validate on one dataset), "all_but" (validate on all except one), or "all" (validate on all datasets)
 
     Returns:
         DataFrame with all validation mentions and their representations
@@ -524,8 +570,24 @@ def prepare_validation_mentions(
             ds_count = len(val_mentions[val_mentions['dataset_name'] == ds_name])
             logger.info(f"  {ds_name}: {ds_count:,} mentions")
 
+    elif training_mode == "all":
+        logger.info(f"Preparing validation mentions for all datasets")
+
+        # Filter to validation split, including ALL datasets
+        val_mentions = mentions_df[
+            mentions_df['split'] == 'val'
+        ].copy()
+
+        logger.info(f"Validation mentions (all datasets): {len(val_mentions):,}")
+
+        # Log per-dataset statistics
+        logger.info("Validation mentions by dataset:")
+        for ds_name in sorted(val_mentions['dataset_name'].unique()):
+            ds_count = len(val_mentions[val_mentions['dataset_name'] == ds_name])
+            logger.info(f"  {ds_name}: {ds_count:,} mentions")
+
     else:
-        raise ValueError(f"Invalid training_mode: {training_mode}. Must be 'single' or 'all_but'")
+        raise ValueError(f"Invalid training_mode: {training_mode}. Must be 'single', 'all_but', or 'all'")
 
     # Join with representations
     val_mentions = val_mentions.merge(

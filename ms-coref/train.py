@@ -495,7 +495,41 @@ def run_all_validations(model, val_resources, device, threshold):
 # Training loop
 # ---------------------------------------------------------------------------
 
+def _safe_torch_save(obj, path):
+    """Save checkpoint, handling Databricks filesystem limitations.
+
+    Saves to /tmp first (local disk), then copies to the target path
+    in chunks. Falls back to keeping in /tmp if the copy fails.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Save to /tmp first (always works)
+    tmp_dir = Path("/tmp/ms_coref_checkpoints")
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    tmp_path = tmp_dir / path.name
+    torch.save(obj, str(tmp_path))
+
+    # Try copying to target path in chunks
+    try:
+        chunk_size = 16 * 1024 * 1024  # 16 MB
+        with open(str(tmp_path), "rb") as fsrc, open(str(path), "wb") as fdst:
+            while True:
+                buf = fsrc.read(chunk_size)
+                if not buf:
+                    break
+                fdst.write(buf)
+        logger.info(f"  Checkpoint saved to {path}")
+    except OSError as e:
+        logger.warning(f"  Could not copy to {path}: {e}")
+        logger.info(f"  Checkpoint kept at {tmp_path}")
+
+
 def train(args):
+    # --- Silence noisy Databricks / Py4J loggers ---
+    for noisy in ["py4j", "py4j.java_gateway", "py4j.clientserver"]:
+        logging.getLogger(noisy).setLevel(logging.ERROR)
+
     # --- Setup ---
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     is_distributed = args.world_size > 1
@@ -595,8 +629,11 @@ def train(args):
 
     # --- Training ---
     if is_main:
-        logger.info(f"Starting training: {args.num_epochs} epochs, "
-                     f"batch_size={args.batch_size}, lr={args.lr}")
+        logger.info(
+            f"Starting training: {args.num_epochs} epochs, "
+            f"batch_size={args.batch_size}, micro_batch={args.micro_batch_size}, "
+            f"lr={args.lr}"
+        )
 
     best_val_f1 = 0.0
     global_step = 0
@@ -616,21 +653,61 @@ def train(args):
             # Encode labels to integers
             int_labels = label_encoder.encode(str_labels).to(device)
 
-            # Forward pass
+            B = input_ids.size(0)
+            mb = args.micro_batch_size
+
+            # --- Phase 1: Forward all micro-batches WITHOUT grad ---
+            # Collect embeddings (small: B x 2048). RoBERTa activations
+            # are freed after each chunk since there's no grad graph.
+            emb_chunks = []
+            with torch.no_grad():
+                for start in range(0, B, mb):
+                    end = min(start + mb, B)
+                    with torch.amp.autocast("cuda", enabled=args.fp16):
+                        chunk_emb = model(
+                            input_ids[start:end], attention_mask[start:end]
+                        )
+                    emb_chunks.append(chunk_emb)
+
+            all_emb = torch.cat(emb_chunks, dim=0)  # (B, 2048) detached
+
+            # Cross-GPU gathering (on detached embeddings)
+            if is_distributed:
+                all_emb_gathered, all_labels = gather_embeddings(
+                    all_emb, int_labels
+                )
+            else:
+                all_emb_gathered, all_labels = all_emb, int_labels
+
+            # --- Phase 2: Compute loss and get embedding gradients ---
+            all_emb_gathered.requires_grad_(True)
             with torch.amp.autocast("cuda", enabled=args.fp16):
-                embeddings = model(input_ids, attention_mask)
+                loss, per_label_losses = ms_loss_fn(all_emb_gathered, all_labels)
 
-                # Cross-GPU gathering
-                if is_distributed:
-                    all_embeddings, all_labels = gather_embeddings(embeddings, int_labels)
-                else:
-                    all_embeddings, all_labels = embeddings, int_labels
-
-                loss, per_label_losses = ms_loss_fn(all_embeddings, all_labels)
-
-            # Backward
-            optimizer.zero_grad()
+            # Backprop through the loss to get gradients on embeddings only
+            # (no model graph involved yet — this is cheap)
             scaler.scale(loss).backward()
+            # emb_grad shape: (B_gathered, 2048) — gradient of loss w.r.t. embeddings
+            emb_grad = all_emb_gathered.grad.detach().clone()
+
+            # If distributed, slice back to local shard
+            if is_distributed:
+                rank = dist.get_rank()
+                emb_grad = emb_grad[rank * B : (rank + 1) * B]
+
+            # --- Phase 3: Re-forward each micro-batch WITH grad ---
+            # Use pre-computed emb_grad to drive backward through model.
+            # Only one micro-batch's activations are in memory at a time.
+            optimizer.zero_grad()
+            for start in range(0, B, mb):
+                end = min(start + mb, B)
+                with torch.amp.autocast("cuda", enabled=args.fp16):
+                    chunk_emb = model(
+                        input_ids[start:end], attention_mask[start:end]
+                    )
+                # Backprop this chunk using pre-computed embedding gradients.
+                # This is equivalent to: (d_loss/d_emb) * (d_emb/d_theta)
+                chunk_emb.backward(emb_grad[start:end])
 
             if args.grad_clip > 0:
                 scaler.unscale_(optimizer)
@@ -716,11 +793,9 @@ def train(args):
             if avg_pd_lea_f1 > best_val_f1:
                 best_val_f1 = avg_pd_lea_f1
                 ckpt_path = ckpt_dir / "best_model.pt"
-                torch.save({
+                _safe_torch_save({
                     "epoch": epoch + 1,
                     "model_state_dict": raw_model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "scheduler_state_dict": scheduler.state_dict(),
                     "best_avg_pd_lea_f1": best_val_f1,
                     "all_metrics": {
                         ds: {k: float(v) for k, v in m.items()}
@@ -730,15 +805,13 @@ def train(args):
                 }, ckpt_path)
                 logger.info(f"  New best model saved: avg pd_LEA F1={best_val_f1:.4f}")
 
-        # Save periodic checkpoint
+        # Save periodic checkpoint (model-only to stay within filesystem limits)
         if is_main and (epoch + 1) % args.save_every == 0:
             raw_model = model.module if is_distributed else model
             ckpt_path = ckpt_dir / f"epoch_{epoch+1}.pt"
-            torch.save({
+            _safe_torch_save({
                 "epoch": epoch + 1,
                 "model_state_dict": raw_model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "scheduler_state_dict": scheduler.state_dict(),
                 "best_pd_lea_f1": best_val_f1,
                 "args": vars(args),
             }, ckpt_path)
@@ -759,12 +832,15 @@ def parse_args():
 
     # Data
     p.add_argument("--data-dir", type=str, default="data")
-    p.add_argument("--output-dir", type=str, default="output")
+    p.add_argument("--output-dir", type=str,
+                   default="/Volumes/jnj_polyphonic_deid/default/cdcr/ms_coref")
     p.add_argument("--max-length", type=int, default=128)
 
     # PK Sampling
     p.add_argument("--batch-size", type=int, default=2048,
                     help="Total batch size across all GPUs")
+    p.add_argument("--micro-batch-size", type=int, default=128,
+                    help="Forward pass chunk size per GPU (controls GPU memory)")
     p.add_argument("--k", type=int, default=2)
     p.add_argument("--tau", type=float, default=1.0,
                     help="PD exponent for chain weighting")
@@ -801,15 +877,16 @@ def parse_args():
     p.add_argument("--save-every", type=int, default=5)
 
     # System
-    p.add_argument("--num-workers", type=int, default=4)
+    p.add_argument("--num-workers", type=int, default=0)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--log-every", type=int, default=10)
     p.add_argument("--world-size", type=int, default=1,
                     help="Number of GPUs (auto-detected with torchrun)")
 
-    args = p.parse_args()
+    # parse_known_args ignores unrecognized args (e.g. Databricks kernel's -f flag)
+    args, _ = p.parse_known_args()
 
-    # Auto-detect world size from torchrun
+    # Auto-detect world size from torchrun / TorchDistributor
     if "WORLD_SIZE" in os.environ:
         args.world_size = int(os.environ["WORLD_SIZE"])
 

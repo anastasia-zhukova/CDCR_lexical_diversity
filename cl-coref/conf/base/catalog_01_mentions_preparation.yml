@@ -1,0 +1,40 @@
+# Data Catalog for 01_mentions_preparation pipeline
+
+# Filtered mentions from all splits: train, val, test (intermediate)
+filtered_mentions:
+  type: MemoryDataset
+
+# Mentions with only required columns for pair generation
+mentions_for_pairs:
+  type: pandas.CSVDataset
+  filepath: data/03_primary/mentions_for_pairs.csv
+  load_args:
+    sep: ";"
+  save_args:
+    sep: ";"
+    index: false
+
+# Grouping statistics (JSON)
+grouping_statistics:
+  type: json.JSONDataset
+  filepath: data/03_primary/grouping_statistics.json
+
+# Mention groups summary (CSV)
+mention_groups_summary:
+  type: pandas.CSVDataset
+  filepath: data/03_primary/mention_groups_summary.csv
+  save_args:
+    index: false
+
+# Mention string representations (Parquet)
+# Contains: mention_id, string_representation, document_context, mention_context
+# Parquet is used because text contains special characters and [SEP] tokens
+mention_representations:
+  type: pandas.ParquetDataset
+  filepath: data/03_primary/mention_representations.parquet
+  load_args:
+    engine: pyarrow
+  save_args:
+    engine: pyarrow
+    compression: snappy
+    index: false

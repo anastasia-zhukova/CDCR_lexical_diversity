@@ -1,0 +1,8 @@
+# Catalog for Pipeline 05: Evaluation
+
+metrics_summary:
+  type: pandas.CSVDataset
+  filepath: data/08_reporting/metrics_summary.csv
+  save_args:
+    index: False
+  layer: reporting

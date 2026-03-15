@@ -1,0 +1,4 @@
+# Shared parameters across all pipelines
+
+# Base path to raw CDCR datasets (used by multiple pipelines)
+data_path: "data/01_raw/cdcr_datasets"

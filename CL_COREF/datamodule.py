@@ -46,38 +46,48 @@ class CorefDataModule(L.LightningDataModule):
         setup_config = self.data_setups[data_setup_id]
         setup_name = setup_config["name"]
 
-        # Build paths for train and val splits
-        train_paths = []
-        val_paths = []
-        for dataset in setup_config["datasets"]:
-            dataset_name = dataset["name"]
-            for split in dataset["splits"]:
+        # Build dataset configs for train and val splits
+        train_dataset_configs = []
+        val_dataset_configs = []
+
+        for dataset_spec in setup_config["datasets"]:
+            dataset_name = dataset_spec["name"]
+            topic_filter = dataset_spec.get("topic_filter")
+            max_mentions = dataset_spec.get("max_mentions")
+
+            for split in dataset_spec["splits"]:
+                config = {
+                    "name": dataset_name,
+                    "path": os.path.join(base_data_path, dataset_name, split),
+                    "topic_filter": topic_filter,
+                    "max_mentions": max_mentions,
+                    "predicted_topics": self.data_config["predicted_topics"]
+                }
+
                 if split == "train":
-                    train_paths.append(os.path.join(base_data_path, dataset_name, split))
+                    train_dataset_configs.append(config)
                 elif split == "val":
-                    val_paths.append(os.path.join(base_data_path, dataset_name, split))
+                    val_dataset_configs.append(config)
 
         if stage == "fit" or stage is None:
             self.train_dataset = CL_Dataset(
                 name=f"{setup_name}_train",
-                data_paths=train_paths,
+                dataset_configs=train_dataset_configs,
                 context_method=self.data_config["context_method"],
                 tokenizer=self.tokenizer,
                 special_mention_tokens=self.special_mention_tokens,
                 mode="train",
                 additional_sampling=self.data_config["additional_sampling"],
-                predicted_topics=self.data_config["predicted_topics"],
                 sentence_transformer_model=self.config["model"]["sentence_transformer_model"]
             )
 
             self.val_dataset = CL_Dataset(
                 name=f"{setup_name}_val",
-                data_paths=val_paths,
+                dataset_configs=val_dataset_configs,
                 context_method=self.data_config["context_method"],
                 tokenizer=self.tokenizer,
                 special_mention_tokens=self.special_mention_tokens,
-                mode="inference",
-                predicted_topics=self.data_config["predicted_topics"]
+                mode="inference"
             )
 
     def train_dataloader(self):

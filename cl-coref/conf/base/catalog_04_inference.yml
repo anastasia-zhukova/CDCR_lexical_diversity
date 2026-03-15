@@ -1,0 +1,11 @@
+# Data Catalog for Pipeline 04: Inference
+#
+# This catalog defines the outputs for the inference pipeline.
+# Inputs are reused from earlier pipeline catalogs:
+# - mentions_for_pairs: catalog_01_mentions_preparation.yml
+# - mention_representations: catalog_01_mentions_preparation.yml
+
+# Output: Inference results summary
+inference_results:
+  type: json.JSONDataset
+  filepath: data/08_reporting/inference_results.json

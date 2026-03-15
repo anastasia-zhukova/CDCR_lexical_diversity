@@ -1,0 +1,16 @@
+# Parameters for 01_mentions_preparation pipeline
+
+# Note: data_path is defined in parameters.yml (shared across pipelines)
+
+# Special tokens to mark mention boundaries
+# These will be inserted as: ... [E] mention tokens [/E] ...
+special_mention_tokens:
+  - "[E]"
+  - "[/E]"
+
+# Note: The tokenizer will later use max_length=128 tokens with truncation="only_first"
+# This means:
+# - Document context (8 sentences) will be truncated first to fit in 128 tokens
+# - Mention sentence with markers [E] and [/E] will be preserved as much as possible
+# - In rare cases where even truncating context isn't enough, tokens from the end
+#   of the mention sentence will be removed, but [E] and [/E] markers must survive

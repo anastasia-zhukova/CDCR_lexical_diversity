@@ -1,0 +1,10 @@
+dataset,mentions,entity,event,topics,topic_list,clusters,non_singleton_clusters,avg_cluster_size,max_cluster_size,est_pairs,est_pos_pairs,est_neg_pairs,pairs_per_mention
+CD2CR,4602,4602,0,1,0_science_technology,3221,426,1.4287488357652902,37,23259,7753,15506,5.054106910039113
+CEREC,3719,3719,0,1,0_emails,750,535,4.958666666666667,60,63132,21044,42088,16.975531056735683
+ECBplus,8549,5731,2818,25,1;3;4;6;7;8;9;10;11;13;14;16;19;20;22;24;25;26;27;28;29;30;31;32;33,2783,859,3.0718648939992814,85,163374,54458,108916,19.110305298865363
+FCC,1603,0,1603,1,0_football_matches,259,151,6.1891891891891895,281,183453,61151,122302,114.44354335620712
+GVC,5299,0,5299,1,0_gun_violence,1158,737,4.575993091537133,78,79143,26381,52762,14.935459520664276
+HyperCoref,17629,0,17629,41,us;wn;amp;gma;wnt;2020;news;test;unit;sport;author;health;photos;sports;thelaw;travel;abcnews;blotter;connect;culture;politic;theview;business;oncampus;politics;thisweek;wellness;lifestyle;nightline;primetime;abcnewsnow;healthcare;technology;pollingunit;watercooler;abc_univision;entertainment;international;social_climber;theworldnewser;whatwouldyoudo,3341,3096,5.276563903023047,33,170841,56947,113894,9.690907028192184
+NP4E,3346,3346,0,1,0_bomb_explosion_kidnap,333,333,10.048048048048049,184,319857,106619,213238,95.59384339509863
+NiDENT,7240,7240,0,1,0_bomb_explosion_kidnap,1319,703,5.489006823351024,208,604233,201411,402822,83.45759668508288
+WECEng,22624,0,22624,18,Flood;Awards;Concert;Contest;Eruption;Festival;Meetings;Oilspill;Wildfire;Earthquake;News Event;Weapons Test;Rail Accident;Solar Eclipse;Beauty Pageant;Civilian Attack;Terrorist Attack;Airliner Accident,3349,2890,6.755449387876978,388,1009077,336359,672718,44.60205975954738

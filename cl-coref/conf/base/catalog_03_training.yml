@@ -1,0 +1,31 @@
+# Data Catalog for Pipeline 03: Training
+#
+# This catalog defines the outputs for the training pipeline.
+# Inputs are already defined in earlier pipeline catalogs:
+# - mentions_for_pairs, mention_representations: catalog_01_mentions_preparation.yml
+# - pairs_sampled_balanced: catalog_02_pairs_selection.yml
+
+# Intermediate: Pairs filtered to specific dataset
+dataset_filtered_pairs:
+  type: pandas.ParquetDataset
+  filepath: data/04_feature/dataset_filtered_pairs.parquet
+
+# Intermediate: Training pairs with representations
+train_pairs_with_repr:
+  type: pandas.ParquetDataset
+  filepath: data/05_model_input/train_pairs_with_repr.parquet
+
+# Intermediate: Validation pairs with representations
+val_pairs_with_repr:
+  type: pandas.ParquetDataset
+  filepath: data/05_model_input/val_pairs_with_repr.parquet
+
+# Intermediate: Validation mentions with representations (for evaluation)
+val_mentions_with_repr:
+  type: pandas.ParquetDataset
+  filepath: data/05_model_input/val_mentions_with_repr.parquet
+
+# Output: Training results
+training_results:
+  type: json.JSONDataset
+  filepath: data/08_reporting/training_results.json

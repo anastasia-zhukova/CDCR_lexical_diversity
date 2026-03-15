@@ -1,0 +1,37 @@
+# Data Catalog for 00_data_exploration pipeline
+
+# Raw unified mentions (before filtering)
+all_mentions_raw:
+  type: MemoryDataset
+
+# Unified mentions dataset (Parquet format) - with is_filtered column
+all_mentions_df:
+  type: pandas.ParquetDataset
+  filepath: data/02_intermediate/all_mentions.parquet
+  load_args:
+    engine: pyarrow
+  save_args:
+    engine: pyarrow
+    compression: snappy
+    index: false
+
+# Summary table (CSV for easy viewing)
+summary_table:
+  type: pandas.CSVDataset
+  filepath: data/02_intermediate/summary_table.csv
+  save_args:
+    index: false
+
+# Dataset statistics (JSON)
+dataset_statistics:
+  type: json.JSONDataset
+  filepath: data/02_intermediate/dataset_statistics.json
+
+# File path outputs (for logging)
+parquet_file_path:
+  type: text.TextDataset
+  filepath: data/02_intermediate/parquet_file_path.txt
+
+stats_file_path:
+  type: text.TextDataset
+  filepath: data/02_intermediate/stats_file_path.txt

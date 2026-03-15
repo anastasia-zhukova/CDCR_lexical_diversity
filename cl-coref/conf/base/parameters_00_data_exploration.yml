@@ -1,0 +1,47 @@
+# Parameters for 00_data_exploration pipeline
+
+# Note: data_path is defined in parameters.yml (shared across pipelines)
+
+# Output: Where to save the unified mentions parquet file
+output_parquet_path: "data/02_intermediate/all_mentions.parquet"
+
+# Output: Where to save statistics JSON
+output_stats_path: "data/02_intermediate/dataset_statistics.json"
+
+# Partitioning: Optional columns to partition the parquet file by
+# Set to null for a single file (recommended for <100M rows)
+# Set to ["dataset_name"] to partition by dataset
+# Set to ["dataset_name", "split"] to partition by dataset and split
+partition_cols: null
+
+# =============================================================================
+# Topic Filters per Dataset
+# =============================================================================
+# Specify which topics to keep for each dataset.
+# - If a dataset is not listed here, ALL topics are included (no filtering)
+# - If a dataset is listed with topics, ONLY those topics are included
+# - Filtered mentions get `is_filtered=False`, kept mentions get `is_filtered=True`
+
+topic_filters:
+  HyperCoref:
+    - "us"
+    - "politics"
+    - "international"
+
+  WECEng:
+    - "Meetings"
+    - "Civilian Attack"
+    - "Airliner Accident"
+    - "Earthquake"
+    - "News Event"
+    - "Terrorist Attack"
+    - "Wildfire"
+    - "Flood"
+    - "Weapons Test"
+    - "Eruption"
+    - "Oilspill"
+    - "Rail Accident"
+
+# Alternative partitioning options (uncomment to use):
+# partition_cols: ["dataset_name"]
+# partition_cols: ["dataset_name", "split"]

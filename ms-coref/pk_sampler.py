@@ -633,9 +633,9 @@ def build_pk_dataloader(
     singleton_df = train_df[singleton_mask]
     chain_df = train_df[~singleton_mask]
 
-    # Only keep chains with >= k mentions in training data
+    # Keep all chains with >= 2 mentions; _sample_k_from_chain caps at chain size
     chain_counts = chain_df.groupby("coref_chain").size()
-    valid_chains = chain_counts[chain_counts >= k].index
+    valid_chains = chain_counts[chain_counts >= 2].index
     chain_df = chain_df[chain_df["coref_chain"].isin(valid_chains)]
 
     logger.info(

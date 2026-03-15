@@ -1,135 +1,104 @@
-# Coreference Resolution of Biased Wording Through Paraphrase Identification
+# Cross-Document Coreference Resolution with Multi-Similarity Loss
 
-Cross-document coreference resolution (CDCR) is a natural language processing task aimed at determining whether various mentions (e.g. shot, gunshot), across one or more documents, refer to the same entity or event. Similarly, paraphrase identification predicts if a pair of sentences describe the same situation **in a more general context**. This repository explores what happens when the two tasks are combined in a Multi-task learning setup and trained over news datasets to resolve coreference of mentions in media bias dataset.
+A metric learning approach to cross-document coreference resolution (CDCR) using **Multi-Similarity Loss** with **phrasing diversity (PD)-weighted evaluation**. The model learns to embed mentions into a shared space where coreferent mentions are close and non-coreferent mentions are far apart, across documents and datasets.
 
-## Table of Contents
-1. [Installation](#1-installation)
-2. [Datasets](#2-datasets)
-3. [Training](#3-training)
-4. [Predict Pairs](#4-predict-pairs)
-5. [Predict Clusters](#5-predict-clusters)
-6. [Agglomerative Clustering and Evaluation](#6-agglomerative-clustering-and-evaluation)
-7. [Notes](#notes)
+## Architecture
 
-## 1. Installation
+**RoBERTa-large** encoder with dual MLP projection heads producing 2048-dim L2-normalized embeddings per mention:
 
-1. **Python 3.8 required**
-2. Recommended to create a virtual environment (venv).
-3. Install libraries: `pip install -r requirements.txt`
+- **CLS projection** (1024-dim): `[CLS]` token → 3-layer MLP → document-level context
+- **Mention span projection** (1024-dim): sum of `[E]...[/E]` tokens → 3-layer MLP → entity-specific signal
 
-## 2. Datasets
+At inference, **agglomerative clustering** (average linkage, cosine distance) groups embeddings using a fixed threshold.
 
-The CDCR datasets used can be found in the [diverse CDCR datasets repository](https://github.com/anastasia-zhukova/Diverse_CDCR_datasets). We used ECBplus-prep and NewsWCL50-prep datasets. Download these folders and save them in the path `/CDCR/data/`.
+## Training
 
-For paraphrase identification, we import the MRPC dataset from the transformers dataset library and we pre-process the Headlines of War dataset as explained [here](/PI/data/HoW/README.md).
+Training uses **PK batch sampling** with structured negative difficulty:
 
-## 3. Training
+- 60% chains from the same subtopic (hard negatives)
+- 20% from the same topic, different subtopic (medium negatives)
+- 20% random chains (easy negatives)
+- Remaining slots filled with singletons
 
-  screen -S training                                                                                                                            
-  python train. py     
+Chain sampling is weighted by phrasing diversity: `weight = PD^tau * log(chain_size) / log(dataset_chain_count)`.
 
-    Detach from the session (leave training running):                                                                                             
-  Press Ctrl+A then D                                          
+### Datasets
 
-  Check on training later:                                                                                                                      
-  screen -r training 
+Training uses 6 datasets from the [unified CDCR corpus (uCDCR)](https://huggingface.co/datasets/AnZhu/uCDCR):
 
-    This reattaches to your session and shows live output.                                                                                        
-                                                                                                                                                
-  See all active screen sessions:                                                                                                               
-  screen -ls                                                                                                                                    
-                                                                                                                                                
-  Common screen commands (while inside a session):                                                                                              
-  - Ctrl+A then D - Detach and leave running                                                                                                    
-  - Ctrl+A then C - Create new window within session                                                                                            
-  - Ctrl+A then N - Next window                                                                                                                 
-  - Ctrl+A then P - Previous window                                                                                                             
-  - Ctrl+A then ? - Help                                                                                                                        
-                                                                                                                                                
-  Kill the session when done:                                                                                                                   
-  screen -X -S training quit                                                                                       
+| Dataset | Description |
+|---------|-------------|
+| HyperCoref | Hypernym-based entity coreference |
+| NP4E | Noun phrase coreference for events |
+| NewsWCL50 | High phrasing diversity news coreference |
+| NIdent | Named entity identification |
+| ECBplus | Event and entity coreference benchmark |
+| ECBplusMETAm | ECB+ with metonymic annotations |
 
-We used 2 sampling strategies to train the multi-task learning model:
+### Training modes
 
-1. Sequential sampling: Batches contain data only from one dataset at a time. The likelihood of a batch having data of each dataset is proportional to its size.
+Configure via constants at the top of `ms-coref/train.py`:
 
-2. Simultaneous: Each batch contains data from all the datasets in proportion to its size.
+| Mode | `TRAIN_MODE` | Description |
+|------|-------------|-------------|
+| Single-dataset | `"single"` | Train on one dataset, evaluate on all 6. Set `SINGLE_TRAIN_DATASET` to choose which. |
+| HyperCoref-main | `"hypercoref_main"` | Train on HyperCoref only, evaluate on all 6. |
+| Dataset mix | `"mix"` | Train on all 6 datasets combined, evaluate on all 6. |
 
-The next steps are run from the path: `/MTL/cross_encoder_adapted/`
+### Running training
 
-The sampling strategy is defined in the `sampling` parameter of the `configs/config_pairwise.json` file.
+```bash
+# Data preparation (downloads uCDCR, builds mention representations)
+cd ms-coref
+python data_preparation.py
 
-We defined 4 experiments or combinations of datasets:
-1. ECB+ only: Uses ECB+ entities and events
-2. MRPC only: Uses MRPC only
-3. ECB+ and MRPC: Combines the two benchmark datasets
-4. ECB+, MRPC, and HoW: Combines the two benchmark datasets with HoW.
+# Training (defaults: tau=1.0, threshold=0.5, batch_size=2048)
+python train.py
+```
 
-To change the experiment, modify the `experiment_id` parameter in the `configs/config_pairwise.json` file. The possible values range from Experiment1 to Experiment4. Then, run the code:
+Key arguments:
 
- ```bash
- python train.py 
- ```
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--tau` | 1.0 | PD exponent for chain weighting |
+| `--batch-size` | 2048 | Total batch size |
+| `--micro-batch-size` | 128 | Gradient accumulation micro-batch |
+| `--num-epochs` | 50 | Training epochs |
+| `--lr` | 2e-5 | Learning rate |
+| `--ms-alpha` | 2.0 | MS Loss positive steepness |
+| `--ms-beta` | 50.0 | MS Loss negative steepness |
+| `--ms-lambda` | 0.5 | MS Loss similarity margin |
 
- After training, the models' checkpoints are stored in the following path:
-`models/pairwise_scorers/Experiment{{i}}/{{model size}}_{{batch size}}/{{training strategy}}/checkpoint_{{i}}`
+### Evaluation
 
-## 4. Predict Pairs
+Evaluation uses **pd_LEA F1** (LEA weighted by phrasing diversity) as the primary metric, computed at a fixed cosine distance threshold of 0.5. Standard LEA metrics (precision, recall, F1) are also reported per dataset.
 
-Choose the model to predict by changing the `chosen_model_path` parameter in `configs/config_pairwise.json`. Then run `predict_pairwise.py` to predict pairs from the 4 datasets. The results are stored in the folder defined in `chosen_model_path`.
+### Inference on NewsWCL50
 
-## 5. Predict Clusters
+```bash
+python infer_news.py --checkpoint path/to/best_model.pt
+```
 
-Move the predicted pairs to the`/results` folder. Then, run the `predict_clusters.py` scripts defining the CDCR dataset. The options are ECBplus-prep or NewsWCL50-prep.
+Runs threshold sweep + error analysis (per-topic, per-mention-type, per-NER-type, chain-level) on NewsWCL50 val and test splits.
 
- ```bash
- python predict_clusters.py <dataset_name>
- ```
+## Project structure
 
-This code exports the gold and predicted clusters in the CoNLL format following this convention:
-`key_{{dataset_name}}.conll` -> Gold clusters
-`sys_{{dataset_name}}_{{cluster}}_exp{{i}}_{{training_strategy_abbreviation}}_sampling.conll` -> Predicted clusters
+```
+ms-coref/              # MS Loss metric learning approach (main)
+  train.py             # Training loop with PK sampling
+  coref_utils.py       # CorefEncoder model, embedding computation, LEA evaluation
+  pk_sampler.py        # PK batch sampler, chain index, custom tokenizer
+  data_preparation.py  # uCDCR data download and processing
+  infer_news.py        # NewsWCL50 inference and error analysis
+  threshold_sweep.py   # Post-hoc threshold sweep utility
 
-    - {{dataset_name}} is a placeholder for the dataset name.
-    - {{cluster}} is a placeholder for the cluster.
-    - {{i}} is a placeholder for the experiment number or identifier.
-    - {{training_strategy_abbreviation}} is a placeholder for the training strategy abbreviation.
-## 6. Agglomerative Clustering and Evaluation
+MTL/                   # Multi-task learning approach (cross-encoder baseline)
+  cross_encoder_adapted/  # Pairwise cross-encoder training and evaluation
 
-After creating the CoNLL files, run the `report_metrics.py` script to create a markdown file with the results. The evaluation uses a [python implementation](https://github.com/ns-moosavi/coval/) of the [official CoNLL implementation](https://github.com/conll/reference-coreference-scorers). There is no threshold tuning. We used the default value of 0.7 used in the [WEC cross-document event coreference model](https://github.com/AlonEirew/cross-doc-event-coref). 
+CL_COREF/              # Coreference evaluation tools (coval scorer)
+cl-coref/              # Data exploration and mention preparation pipelines
+```
 
-The `result.md` file has the following structure for each file with predictions:
+## Previous approach
 
-### File: predicted_pairs_exp3_sim_sampling.csv
-
-| Dataset   |   Precision |   Recall |   F1 Score |
-|:----------|------------:|---------:|-----------:|
-| how       |    0.756685 | 0.560095 |   0.616035 |
-| mrpc      |    0.54082  | 0.442899 |   0.447406 |
-
-#### ECBplus-prep
-
-| Metric   |   Recall |   Precision |       F1 |
-|:---------|---------:|------------:|---------:|
-| mentions | 100      |    100      | 100      |
-| muc      |  85.1307 |     75.4799 |  80.0154 |
-| bcub     |  78.8259 |     63.2776 |  70.2011 |
-| ceafe    |  57.6969 |     74.7018 |  65.1073 |
-| lea      |  61.9916 |     53.4232 |  57.3893 |
-
-CoNLL score: 71.77
-#### NewsWCL50-prep
-
-| Metric   |   Recall |   Precision |        F1 |
-|:---------|---------:|------------:|----------:|
-| mentions | 100      |   100       | 100       |
-| muc      |  72.5577 |    90.9937  |  80.7366  |
-| bcub     |  40.6999 |    62.5674  |  49.3183  |
-| ceafe    |  41.8759 |     4.90505 |   8.78149 |
-| lea      |  38.9816 |    46.2099  |  42.2891  |
-
-CoNLL score: 46.28
-
-## 7. Notes
-
-* The CDCR model is based on [the cross encoder repository](https://github.com/ariecattan/cross_encoder/) and the training strategies follow the definitions outlined in [Analyzing Multi-Task Learning for Abstractive Text Summarization](https://arxiv.org/abs/2210.14606).
+The **multi-task learning (MTL) cross-encoder** approach is documented in [MTL/README.md](MTL/README.md). It combines CDCR with paraphrase identification using pairwise scoring.

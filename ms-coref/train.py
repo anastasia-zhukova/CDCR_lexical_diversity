@@ -3,14 +3,18 @@ MS Loss training for cross-document coreference resolution.
 
 Uses PK batch sampling with structured negative difficulty,
 cross-GPU embedding gathering for large effective batches,
-and pd_LEA validation on NewsWCL50.
+and pd_LEA validation across 6 CDCR datasets.
+
+Training modes (configured via constants at top of file):
+  - single:          Train on one dataset, evaluate on all
+  - hypercoref_main: Train on HyperCoref, evaluate on all
+  - mix:             Train on all datasets combined
 """
 
 import argparse
 import logging
 import math
 import os
-import sys
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -20,25 +24,61 @@ import pandas as pd
 import torch
 import torch.distributed as dist
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
-from transformers import RobertaModel, RobertaTokenizer
+from transformers import RobertaTokenizer
 
-from data_preparation import phrasing_diversity_calc
-from pk_sampler import (
-    ChainIndex,
-    MentionDataset,
-    PKBatchSampler,
-    SingletonPool,
-    build_pk_dataloader,
-)
+from coref_utils import CorefEncoder, compute_embeddings, evaluate_per_subtopic
+from pk_sampler import MentionDataset, build_pk_dataloader
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# Suppress Databricks/Spark infrastructure noise
+logging.getLogger("py4j").setLevel(logging.ERROR)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+# ---------------------------------------------------------------------------
+# Experiment configuration
+# ---------------------------------------------------------------------------
+
+# Subset of datasets to use (from uCDCR's 12)
+DATASETS = ["HyperCoref", "NP4E", "NewsWCL50", "NIdent", "ECBplus", "ECBplusMETAm"]
+
+# Training mode: "single", "hypercoref_main", "mix"
+#   single          – train on one dataset at a time (loop over DATASETS externally)
+#   hypercoref_main – train on HyperCoref, evaluate on all DATASETS
+#   mix             – train on all DATASETS combined
+TRAIN_MODE = "mix"
+
+# When TRAIN_MODE == "single", which dataset to train on.
+# Ignored for other modes.  Change this (or loop externally) per run.
+SINGLE_TRAIN_DATASET = "HyperCoref"
+
+# Fixed clustering threshold for cosine-distance evaluation
+EVAL_THRESHOLD = 0.5
+
+def safe_torch_save(obj, path):
+    """
+    Save via local /tmp then copy to destination.
+
+    Avoids two Databricks issues:
+    - inline_container.cc errors from PyTorch zip writes to network filesystems
+    - sendfile 2GB limit when copying large checkpoints
+    """
+    path = Path(path)
+    tmp_path = Path("/tmp") / path.name
+    torch.save(obj, tmp_path)
+    if path.exists():
+        path.unlink()
+    with open(tmp_path, "rb") as fsrc, open(path, "wb") as fdst:
+        while buf := fsrc.read(64 * 1024 * 1024):
+            fdst.write(buf)
+    tmp_path.unlink()
+
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +123,9 @@ class MultiSimilarityLoss(nn.Module):
         pos_mask = label_mat & ~eye_mask
         neg_mask = ~label_mat
 
-        loss = torch.tensor(0.0, device=embeddings.device)
+        # Use embeddings.sum() * 0 so the tensor is always in the computation
+        # graph — avoids "does not require grad" errors on empty batches.
+        loss = embeddings.sum() * 0.0
         n_valid = 0
         per_label_loss = defaultdict(list)
 
@@ -130,80 +172,7 @@ class MultiSimilarityLoss(nn.Module):
         return loss, per_label_loss
 
 
-# ---------------------------------------------------------------------------
-# Model — reuses SiameseNetwork architecture from CL_COREF
-# ---------------------------------------------------------------------------
-
-class CorefEncoder(nn.Module):
-    """
-    Coreference mention encoder: RoBERTa-large + dual MLP heads.
-
-    Produces a 2048-dim embedding per mention by concatenating:
-      - CLS token embedding projected through MLP (1024-dim)
-      - Mention span embedding (sum of [E]...[/E] tokens) projected through MLP (1024-dim)
-
-    Same architecture as CL_COREF/model.py SiameseNetwork, adapted for
-    standalone use with MS Loss (no paired forward pass needed).
-    """
-
-    def __init__(self, tokenizer, mlp_hidden_dim=1024):
-        super().__init__()
-        self.language_model = RobertaModel.from_pretrained("roberta-large")
-        self.language_model.resize_token_embeddings(len(tokenizer))
-
-        self.e_start_id = tokenizer.convert_tokens_to_ids("[E]")
-        self.e_end_id = tokenizer.convert_tokens_to_ids("[/E]")
-        self.mlp_hidden_dim = mlp_hidden_dim
-        hidden_size = self.language_model.config.hidden_size  # 1024
-
-        self.mlp_cls = nn.Sequential(
-            nn.Linear(hidden_size, mlp_hidden_dim),
-            nn.ReLU(),
-            nn.Linear(mlp_hidden_dim, mlp_hidden_dim),
-            nn.ReLU(),
-            nn.Linear(mlp_hidden_dim, mlp_hidden_dim),
-        )
-        self.mlp_mention = nn.Sequential(
-            nn.Linear(hidden_size, mlp_hidden_dim),
-            nn.ReLU(),
-            nn.Linear(mlp_hidden_dim, mlp_hidden_dim),
-            nn.ReLU(),
-            nn.Linear(mlp_hidden_dim, mlp_hidden_dim),
-        )
-
-    def forward(self, input_ids, attention_mask):
-        """
-        Args:
-            input_ids: (B, L) token ids.
-            attention_mask: (B, L) attention mask.
-
-        Returns:
-            (B, 2048) L2-normalized embeddings.
-        """
-        # Find [E] and [/E] positions
-        e_start_idx = input_ids.eq(self.e_start_id).nonzero(as_tuple=True)
-        e_end_idx = input_ids.eq(self.e_end_id).nonzero(as_tuple=True)
-
-        outputs = self.language_model(input_ids=input_ids, attention_mask=attention_mask)
-        hidden = outputs.last_hidden_state  # (B, L, H)
-
-        # CLS embedding
-        cls_embed = hidden[:, 0, :]  # (B, H)
-
-        # Mention span embedding: sum tokens between [E] and [/E]
-        seq_indices = torch.arange(hidden.size(1), device=hidden.device)
-        start_mask = seq_indices >= e_start_idx[1].unsqueeze(1)
-        end_mask = seq_indices <= e_end_idx[1].unsqueeze(1)
-        mention_mask = start_mask & end_mask  # (B, L)
-        mention_embed = (hidden * mention_mask.unsqueeze(2).float()).sum(dim=1)  # (B, H)
-
-        # Project through MLPs and concatenate
-        out_cls = self.mlp_cls(cls_embed)  # (B, mlp_dim)
-        out_mention = self.mlp_mention(mention_embed)  # (B, mlp_dim)
-        concat = torch.cat([out_cls, out_mention], dim=1)  # (B, 2*mlp_dim)
-
-        # L2 normalize for cosine-based MS Loss
-        return F.normalize(concat, p=2, dim=1)
+# CorefEncoder, compute_embeddings, evaluate_clustering live in coref_utils.py
 
 
 # ---------------------------------------------------------------------------
@@ -276,159 +245,19 @@ class LabelEncoder:
         return torch.tensor(int_labels, dtype=torch.long)
 
 
-# ---------------------------------------------------------------------------
-# Validation (embedding + clustering + pd_LEA)
-# ---------------------------------------------------------------------------
-
-@torch.no_grad()
-def compute_embeddings(model, dataloader, device):
-    """
-    Compute embeddings for all mentions in a dataloader.
-
-    Returns:
-        embeddings: (N, D) numpy array of L2-normalized embeddings.
-        labels: list of string chain IDs.
-    """
-    model.eval()
-    all_embeddings = []
-    all_labels = []
-
-    for batch in dataloader:
-        input_ids = batch["input_ids"].to(device)
-        attention_mask = batch["attention_mask"].to(device)
-
-        embeddings = model(input_ids, attention_mask)
-        all_embeddings.append(embeddings.cpu().numpy())
-        all_labels.extend(batch["label"])
-
-    return np.concatenate(all_embeddings, axis=0), all_labels
-
-
-def _compute_lea(input_clusters, mention_to_output, weight_fn):
-    """
-    Generic LEA computation with pluggable cluster weighting.
-
-    Args:
-        input_clusters: list of sets (each set = mention indices in one cluster).
-        mention_to_output: dict mapping mention index -> set of mentions in its
-            output cluster.
-        weight_fn: callable(cluster) -> float, the importance weight for a cluster.
-
-    Returns:
-        (numerator, denominator) for recall or precision.
-    """
-    num, den = 0.0, 0.0
-    for cluster in input_clusters:
-        w = weight_fn(cluster)
-        if len(cluster) == 1:
-            m = next(iter(cluster))
-            den += w
-            if len(mention_to_output.get(m, set())) == 1:
-                num += w
-        else:
-            den += w
-            all_links = len(cluster) * (len(cluster) - 1) / 2.0
-            common_links = 0.0
-            for m in cluster:
-                out_cluster = mention_to_output.get(m, set())
-                common_links += len(cluster & out_cluster) - 1
-            common_links /= 2.0
-            num += w * (common_links / all_links) if all_links > 0 else 0.0
-    return num, den
-
-
-def evaluate_clustering(embeddings, gold_labels, pd_tuples, threshold=0.5):
-    """
-    Agglomerative clustering + LEA and pd_LEA evaluation.
-
-    Args:
-        embeddings: (N, D) L2-normalized embeddings.
-        gold_labels: list of string chain IDs (len N).
-        pd_tuples: list of (mention_head, mention_wordset, mention_wo_stopwords)
-            tuples (len N). Used for pd_LEA weighting.
-        threshold: cosine distance threshold for clustering.
-
-    Returns:
-        dict with lea_* and pd_lea_* metrics.
-    """
-    from scipy.cluster.hierarchy import fcluster, linkage
-    from scipy.spatial.distance import pdist
-
-    distances = pdist(embeddings, metric="cosine")
-    Z = linkage(distances, method="average")
-    cluster_ids = fcluster(Z, t=threshold, criterion="distance")
-
-    # Build cluster -> mention-indices mapping
-    pred_clusters = defaultdict(set)
-    gold_clusters = defaultdict(set)
-    for i, (pred_id, gold_id) in enumerate(zip(cluster_ids, gold_labels)):
-        pred_clusters[pred_id].add(i)
-        gold_clusters[gold_id].add(i)
-
-    pred_list = list(pred_clusters.values())
-    gold_list = list(gold_clusters.values())
-
-    mention_to_gold = {}
-    for mentions in gold_clusters.values():
-        for m in mentions:
-            mention_to_gold[m] = mentions
-
-    mention_to_pred = {}
-    for mentions in pred_clusters.values():
-        for m in mentions:
-            mention_to_pred[m] = mentions
-
-    # --- Standard LEA (weight = cluster size) ---
-    def lea_weight(cluster):
-        return len(cluster)
-
-    lea_r_num, lea_r_den = _compute_lea(gold_list, mention_to_pred, lea_weight)
-    lea_p_num, lea_p_den = _compute_lea(pred_list, mention_to_gold, lea_weight)
-
-    lea_r = lea_r_num / lea_r_den if lea_r_den > 0 else 0
-    lea_p = lea_p_num / lea_p_den if lea_p_den > 0 else 0
-    lea_f1 = 2 * lea_p * lea_r / (lea_p + lea_r) if (lea_p + lea_r) > 0 else 0
-
-    # --- pd_LEA (weight = phrasing diversity of cluster) ---
-    def pd_weight(cluster):
-        if len(cluster) == 1:
-            return 0.0
-        mentions = [pd_tuples[i] for i in cluster if pd_tuples[i][2] is not None]
-        if len(mentions) < 2:
-            return 0.0
-        return phrasing_diversity_calc(mentions)
-
-    pd_r_num, pd_r_den = _compute_lea(gold_list, mention_to_pred, pd_weight)
-    pd_p_num, pd_p_den = _compute_lea(pred_list, mention_to_gold, pd_weight)
-
-    pd_lea_r = pd_r_num / pd_r_den if pd_r_den > 0 else 0
-    pd_lea_p = pd_p_num / pd_p_den if pd_p_den > 0 else 0
-    pd_lea_f1 = (
-        2 * pd_lea_p * pd_lea_r / (pd_lea_p + pd_lea_r)
-        if (pd_lea_p + pd_lea_r) > 0
-        else 0
-    )
-
-    return {
-        "lea_precision": lea_p,
-        "lea_recall": lea_r,
-        "lea_f1": lea_f1,
-        "pd_lea_precision": pd_lea_p,
-        "pd_lea_recall": pd_lea_r,
-        "pd_lea_f1": pd_lea_f1,
-        "n_gold_clusters": len(gold_list),
-        "n_pred_clusters": len(pred_list),
-    }
 
 
 def build_val_resources(mention_df, tokenizer, max_length, val_batch_size, num_workers):
     """
-    Build per-dataset validation dataloaders and PD tuples.
+    Build per-dataset validation dataloaders, PD tuples, and subtopic IDs.
 
     Returns:
         val_resources: dict of dataset_name -> {
             "dataloader": DataLoader,
             "pd_tuples": list of (head, wordset, wo_stopwords) per mention,
+            "subtopic_ids": list of subtopic identifiers per mention,
+            "n_mentions": int,
+            "n_subtopics": int,
         }
     """
     val_resources = {}
@@ -453,42 +282,22 @@ def build_val_resources(mention_df, tokenizer, max_length, val_batch_size, num_w
             head = row.get("mention_head")
             wordset = row.get("mention_wordset")
             wo_stop = row.get("mention_wo_stopwords")
-            # Keep None for mentions without PD components
             if isinstance(wordset, str) and isinstance(wo_stop, str):
                 pd_tuples.append((head, wordset, wo_stop))
             else:
                 pd_tuples.append((head, None, None))
 
+        subtopic_ids = ds_df["subtopic_id"].tolist()
+
         val_resources[dataset_name] = {
             "dataloader": dataloader,
             "pd_tuples": pd_tuples,
+            "subtopic_ids": subtopic_ids,
             "n_mentions": len(ds_df),
+            "n_subtopics": ds_df["subtopic_id"].nunique(),
         }
 
     return val_resources
-
-
-def run_all_validations(model, val_resources, device, threshold):
-    """
-    Run validation on all datasets, return per-dataset metrics.
-
-    Args:
-        model: CorefEncoder (unwrapped from DDP).
-        val_resources: output of build_val_resources.
-        device: torch device.
-        threshold: clustering distance threshold.
-
-    Returns:
-        dict of dataset_name -> metrics dict.
-    """
-    all_metrics = {}
-    for dataset_name, res in val_resources.items():
-        embeddings, labels = compute_embeddings(model, res["dataloader"], device)
-        metrics = evaluate_clustering(
-            embeddings, labels, res["pd_tuples"], threshold=threshold
-        )
-        all_metrics[dataset_name] = metrics
-    return all_metrics
 
 
 # ---------------------------------------------------------------------------
@@ -553,6 +362,32 @@ def train(args):
     if is_main:
         logger.info(f"Loaded {len(mention_df):,} mentions from {data_path}")
 
+    # Filter to experiment datasets
+    mention_df = mention_df[mention_df["dataset"].isin(DATASETS)].copy()
+    if is_main:
+        logger.info(f"Filtered to {len(DATASETS)} datasets ({', '.join(DATASETS)}): "
+                     f"{len(mention_df):,} mentions")
+
+    # Determine training datasets based on mode
+    if TRAIN_MODE == "single":
+        train_datasets = [SINGLE_TRAIN_DATASET]
+    elif TRAIN_MODE == "hypercoref_main":
+        train_datasets = ["HyperCoref"]
+    else:  # mix
+        train_datasets = list(DATASETS)
+
+    # Build a training-only dataframe (all mentions, but only train-datasets for the train split)
+    train_mention_df = mention_df.copy()
+    train_mask = train_mention_df["split"] == "train"
+    dataset_mask = train_mention_df["dataset"].isin(train_datasets)
+    # Keep: train split rows only if in train_datasets; val/test rows from all DATASETS
+    train_mention_df = train_mention_df[~train_mask | (train_mask & dataset_mask)].copy()
+
+    if is_main:
+        logger.info(f"Train mode: {TRAIN_MODE}  |  Training datasets: {train_datasets}")
+        n_train = (train_mention_df["split"] == "train").sum()
+        logger.info(f"  Training mentions: {n_train:,}")
+
     # --- Tokenizer ---
     tokenizer = RobertaTokenizer.from_pretrained("roberta-large")
     tokenizer.add_tokens(["[E]", "[/E]"])
@@ -560,7 +395,7 @@ def train(args):
     # --- Build training dataloader ---
     per_gpu_batch = args.batch_size // args.world_size
     train_dataloader, chain_index = build_pk_dataloader(
-        mention_df=mention_df,
+        mention_df=train_mention_df,
         tokenizer=tokenizer,
         batch_size=per_gpu_batch if is_distributed else args.batch_size,
         k=args.k,
@@ -574,14 +409,16 @@ def train(args):
     if is_main:
         logger.info(f"Training dataloader: {len(train_dataloader)} batches/epoch")
 
-    # --- Build per-dataset validation dataloaders ---
+    # --- Build per-dataset validation dataloaders (always all DATASETS) ---
     val_resources = build_val_resources(
         mention_df, tokenizer, args.max_length, args.val_batch_size, args.num_workers
     )
     if is_main:
         for ds_name, res in sorted(val_resources.items()):
-            logger.info(f"  Val {ds_name:20s}: {res['n_mentions']:>6,} mentions")
+            logger.info(f"  Val {ds_name:20s}: {res['n_mentions']:>6,} mentions  "
+                        f"{res['n_subtopics']:>4} subtopics")
         logger.info(f"  Monitor metric: avg pd_LEA F1 across all {len(val_resources)} datasets")
+        logger.info(f"  Clustering: per-subtopic (matching CDCR evaluation protocol)")
 
     # --- Model ---
     model = CorefEncoder(tokenizer, mlp_hidden_dim=args.mlp_dim)
@@ -629,11 +466,8 @@ def train(args):
 
     # --- Training ---
     if is_main:
-        logger.info(
-            f"Starting training: {args.num_epochs} epochs, "
-            f"batch_size={args.batch_size}, micro_batch={args.micro_batch_size}, "
-            f"lr={args.lr}"
-        )
+        logger.info(f"Starting training: {args.num_epochs} epochs, "
+                     f"batch_size={args.batch_size}, lr={args.lr}")
 
     best_val_f1 = 0.0
     global_step = 0
@@ -671,18 +505,15 @@ def train(args):
 
             all_emb = torch.cat(emb_chunks, dim=0)  # (B, 2048) detached
 
-            # Cross-GPU gathering (on detached embeddings)
-            if is_distributed:
-                all_emb_gathered, all_labels = gather_embeddings(
-                    all_emb, int_labels
+                micro_labels = int_labels[micro_start:micro_end] (on detached embeddings)
+                if is_distributed:
+                    all_emb_gathered, all_labels = gather_embeddings(
+                    all_emb, micro_labels
                 )
-            else:
-                all_emb_gathered, all_labels = all_emb, int_labels
+                else:
+                    all_emb_gathered, all_labels = all_emb, micro_labels
 
-            # --- Phase 2: Compute loss and get embedding gradients ---
-            all_emb_gathered.requires_grad_(True)
-            with torch.amp.autocast("cuda", enabled=args.fp16):
-                loss, per_label_losses = ms_loss_fn(all_emb_gathered, all_labels)
+                loss, per_label_losses = ms_loss_fn(all_embeddings, all_labels)
 
             # Backprop through the loss to get gradients on embeddings only
             # (no model graph involved yet — this is cheap)
@@ -717,19 +548,11 @@ def train(args):
             scaler.update()
             scheduler.step()
 
-            # Track losses
-            loss_val = loss.item()
+            # batch_loss = sum(loss_i / n_micros) = mean loss across micro-batches
+            loss_val = batch_loss
             epoch_loss += loss_val
             epoch_steps += 1
             global_step += 1
-
-            # Accumulate per-chain losses for difficulty updates
-            for label_int, losses in per_label_losses.items():
-                # Map back to string label
-                for str_label, int_label in label_encoder._map.items():
-                    if int_label == label_int:
-                        epoch_chain_losses[str_label].extend(losses)
-                        break
 
             # Logging
             if is_main and global_step % args.log_every == 0:
@@ -767,39 +590,59 @@ def train(args):
                 f"max_loss={np.max(vals):.4f}"
             )
 
-        # --- Validation ---
+        # --- Validation at fixed threshold ---
         if is_main and (epoch + 1) % args.val_every == 0:
-            logger.info("Running validation on all datasets...")
+            logger.info(f"Evaluating at fixed threshold {EVAL_THRESHOLD}...")
+            if device.type == "cuda":
+                torch.cuda.empty_cache()
             raw_model = model.module if is_distributed else model
-            all_metrics = run_all_validations(
-                raw_model, val_resources, device, args.cluster_threshold
-            )
 
-            # Log per-dataset metrics
-            for ds_name in sorted(all_metrics.keys()):
-                m = all_metrics[ds_name]
+            # Compute embeddings once per dataset, cluster per subtopic
+            dataset_names = sorted(val_resources.keys())
+            eval_metrics = {}
+            for ds_name, res in val_resources.items():
+                embs, labels = compute_embeddings(raw_model, res["dataloader"], device)
+                metrics = evaluate_per_subtopic(
+                    embs, labels, res["pd_tuples"], res["subtopic_ids"],
+                    threshold=EVAL_THRESHOLD,
+                )
+                eval_metrics[ds_name] = metrics
+
+            if device.type == "cuda":
+                torch.cuda.empty_cache()
+
+            avg_pd_lea_f1 = np.mean([eval_metrics[ds]["pd_lea_f1"] for ds in dataset_names])
+
+            # Log per-dataset results
+            for ds_name in dataset_names:
+                m = eval_metrics[ds_name]
                 logger.info(
                     f"  {ds_name:20s}  "
-                    f"LEA F1={m['lea_f1']:.4f} (P={m['lea_precision']:.4f} R={m['lea_recall']:.4f})  "
-                    f"pd_LEA F1={m['pd_lea_f1']:.4f} (P={m['pd_lea_precision']:.4f} R={m['pd_lea_recall']:.4f})  "
+                    f"CoNLL={m['conll_f1']:.4f}  "
+                    f"MUC={m['muc_f1']:.4f}  B3={m['b3_f1']:.4f}  CEAFe={m['ceafe_f1']:.4f}  "
+                    f"LEA={m['lea_f1']:.4f}  "
+                    f"pd_LEA={m['pd_lea_f1']:.4f} (P={m['pd_lea_precision']:.4f} R={m['pd_lea_recall']:.4f})  "
                     f"clusters: gold={m['n_gold_clusters']} pred={m['n_pred_clusters']}"
                 )
-
-            # Monitor metric: mean pd_LEA F1 across all datasets
-            avg_pd_lea_f1 = np.mean([m["pd_lea_f1"] for m in all_metrics.values()])
-            logger.info(f"  Avg pd_LEA F1 (all datasets) = {avg_pd_lea_f1:.4f}")
+            avg_conll_f1 = np.mean([eval_metrics[ds]["conll_f1"] for ds in dataset_names])
+            logger.info(f"  Avg pd_LEA F1 = {avg_pd_lea_f1:.4f}  Avg CoNLL F1 = {avg_conll_f1:.4f}  (threshold={EVAL_THRESHOLD})")
 
             # Save best checkpoint
             if avg_pd_lea_f1 > best_val_f1:
                 best_val_f1 = avg_pd_lea_f1
                 ckpt_path = ckpt_dir / "best_model.pt"
-                _safe_torch_save({
+                torch.save({
                     "epoch": epoch + 1,
                     "model_state_dict": raw_model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "scheduler_state_dict": scheduler.state_dict(),
                     "best_avg_pd_lea_f1": best_val_f1,
+                    "best_threshold": EVAL_THRESHOLD,
+                    "train_mode": TRAIN_MODE,
+                    "train_datasets": train_datasets,
                     "all_metrics": {
                         ds: {k: float(v) for k, v in m.items()}
-                        for ds, m in all_metrics.items()
+                        for ds, m in eval_metrics.items()
                     },
                     "args": vars(args),
                 }, ckpt_path)
@@ -809,10 +652,14 @@ def train(args):
         if is_main and (epoch + 1) % args.save_every == 0:
             raw_model = model.module if is_distributed else model
             ckpt_path = ckpt_dir / f"epoch_{epoch+1}.pt"
-            _safe_torch_save({
+            torch.save({
                 "epoch": epoch + 1,
                 "model_state_dict": raw_model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
                 "best_pd_lea_f1": best_val_f1,
+                "train_mode": TRAIN_MODE,
+                "train_datasets": train_datasets,
                 "args": vars(args),
             }, ckpt_path)
 
@@ -832,8 +679,7 @@ def parse_args():
 
     # Data
     p.add_argument("--data-dir", type=str, default="data")
-    p.add_argument("--output-dir", type=str,
-                   default="/Volumes/jnj_polyphonic_deid/default/cdcr/ms_coref")
+    p.add_argument("--output-dir", type=str, default="output")
     p.add_argument("--max-length", type=int, default=128)
 
     # PK Sampling
@@ -859,7 +705,9 @@ def parse_args():
     p.add_argument("--ms-lambda", type=float, default=0.5)
 
     # Training
-    p.add_argument("--num-epochs", type=int, default=50)
+    p.add_argument("--num-epochs", type=int, default=25)
+    p.add_argument("--micro-batch-size", type=int, default=128,
+                    help="Per-step batch size; gradients accumulate over batch_size/micro_batch_size steps")
     p.add_argument("--lr", type=float, default=2e-5)
     p.add_argument("--weight-decay", type=float, default=0.01)
     p.add_argument("--grad-clip", type=float, default=1.0)
@@ -871,7 +719,6 @@ def parse_args():
     p.add_argument("--val-batch-size", type=int, default=256)
     p.add_argument("--val-every", type=int, default=1,
                     help="Validate every N epochs")
-    p.add_argument("--cluster-threshold", type=float, default=0.5)
 
     # Checkpointing
     p.add_argument("--save-every", type=int, default=5)
@@ -883,8 +730,7 @@ def parse_args():
     p.add_argument("--world-size", type=int, default=1,
                     help="Number of GPUs (auto-detected with torchrun)")
 
-    # parse_known_args ignores unrecognized args (e.g. Databricks kernel's -f flag)
-    args, _ = p.parse_known_args()
+    args = p.parse_args()
 
     # Auto-detect world size from torchrun / TorchDistributor
     if "WORLD_SIZE" in os.environ:

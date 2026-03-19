@@ -640,7 +640,7 @@ def build_pk_dataloader(
 
     logger.info(
         f"  Non-singleton: {len(chain_df):,} mentions in "
-        f"{chain_df['coref_chain'].nunique():,} chains (>= {k} mentions)"
+        f"{chain_df['coref_chain'].nunique():,} chains (>= 2 mentions, sampling up to k={k})"
     )
     logger.info(f"  Singletons: {len(singleton_df):,}")
 

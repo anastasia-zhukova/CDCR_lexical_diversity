@@ -887,12 +887,17 @@ def parse_args():
 
     # Auto-derive run suffix from training config if not provided
     if args.run_suffix is None:
+        all_six = ["HyperCoref", "NP4E", "NewsWCL50", "NIdent", "ECBplus", "ECBplusMETAm"]
         if TRAIN_MODE == "single":
             args.run_suffix = f"single_{SINGLE_TRAIN_DATASET}"
         elif TRAIN_MODE == "hypercoref_main":
             args.run_suffix = "hypercoref_main"
-        else:
+        elif sorted(DATASETS) == sorted(all_six):
             args.run_suffix = "mix"
+        else:
+            # Subset mix — encode the dataset names to avoid collision
+            ds_tag = "_".join(sorted(DATASETS))
+            args.run_suffix = f"mix_{ds_tag}"
 
     return args
 

@@ -32,7 +32,7 @@ from torch.utils.data import DataLoader
 from transformers import RobertaTokenizer
 
 from coref_utils import CorefEncoder, compute_embeddings, evaluate_per_subtopic
-from pk_sampler import MentionDataset, build_pk_dataloader
+from sampler import MentionDataset, build_dataloader
 
 logging.basicConfig(
     level=logging.INFO,
@@ -420,11 +420,10 @@ def train(args):
 
     # --- Build training dataloader ---
     per_gpu_batch = args.batch_size // args.world_size
-    train_dataloader, chain_index = build_pk_dataloader(
+    train_dataloader, chain_index = build_dataloader(
         mention_df=train_mention_df,
         tokenizer=tokenizer,
         batch_size=per_gpu_batch if is_distributed else args.batch_size,
-        k=args.k,
         max_length=args.max_length,
         tau=args.tau,
         gamma=args.gamma,
@@ -492,8 +491,9 @@ def train(args):
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     if is_main:
-        # File logger
-        fh = logging.FileHandler(run_dir / "train.log")
+        # File logger — write to /tmp (volume fs doesn't support flush), copy to run_dir at end
+        local_log_path = Path("/tmp") / f"ms_coref_{args.run_suffix}_train.log"
+        fh = logging.FileHandler(local_log_path, mode="w")
         fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s"))
         logging.getLogger().addHandler(fh)
 
@@ -520,8 +520,10 @@ def train(args):
         # One checkpoint selected by avg pd_LEA F1 across all datasets
         best_val_f1 = 0.0
 
-    # Per-epoch metrics log (one JSON line per epoch)
+    # Per-epoch metrics accumulated in memory, written fully each epoch
+    # (avoids Illegal seek on Databricks volume filesystems which don't support append mode)
     metrics_log_path = run_dir / "metrics_log.jsonl"
+    metrics_log_rows = []
 
     # --- Training ---
     if is_main:
@@ -737,28 +739,27 @@ def train(args):
                                      ckpt_dir / "best_model.pt")
                     logger.info(f"  New best (avg pd_LEA): {best_val_f1:.4f}")
 
-            # Append epoch metrics to JSONL log
-            with open(metrics_log_path, "a") as f:
-                json.dump({
-                    "epoch": epoch + 1,
-                    "avg_pd_lea_f1": float(avg_pd_lea_f1),
-                    "avg_conll_f1": float(avg_conll_f1),
-                    "per_dataset": {
-                        ds: {k: float(v) for k, v in m.items()}
-                        for ds, m in eval_metrics.items()
-                    },
-                }, f)
-                f.write("\n")
+            # Write metrics log — full overwrite each epoch (volume fs doesn't support append)
+            metrics_log_rows.append({
+                "epoch": epoch + 1,
+                "avg_pd_lea_f1": float(avg_pd_lea_f1),
+                "avg_conll_f1": float(avg_conll_f1),
+                "per_dataset": {
+                    ds: {k: float(v) for k, v in m.items()}
+                    for ds, m in eval_metrics.items()
+                },
+            })
+            with open(metrics_log_path, "w") as f:
+                for row in metrics_log_rows:
+                    f.write(json.dumps(row) + "\n")
 
         # Save periodic checkpoint (model-only to stay within filesystem limits)
         if is_main and (epoch + 1) % args.save_every == 0:
             raw_model = model.module if is_distributed else model
             ckpt_path = ckpt_dir / f"epoch_{epoch+1}.pt"
-            torch.save({
+            _safe_torch_save({
                 "epoch": epoch + 1,
                 "model_state_dict": raw_model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "scheduler_state_dict": scheduler.state_dict(),
                 "train_mode": TRAIN_MODE,
                 "train_datasets": train_datasets,
                 "args": vars(args),
@@ -774,6 +775,19 @@ def train(args):
     if is_distributed:
         dist.destroy_process_group()
 
+    # Copy train log from /tmp to volume now that training is complete
+    if is_main:
+        try:
+            fh.close()
+            logging.getLogger().removeHandler(fh)
+            dest_log = run_dir / "train.log"
+            with open(local_log_path, "rb") as fsrc, open(dest_log, "wb") as fdst:
+                while buf := fsrc.read(64 * 1024 * 1024):
+                    fdst.write(buf)
+            logger.info(f"Train log saved to {dest_log}")
+        except Exception as e:
+            logger.warning(f"Could not copy train log to volume: {e} (kept at {local_log_path})")
+
     # --- Post-training inference on test set ---
     # Only run on main process, after distributed teardown.
     # Uses best_model_pd_lea.pt (single mode) or best_model.pt (mix/hypercoref_main).
@@ -785,7 +799,7 @@ def train(args):
 
         if ckpt_for_eval.exists():
             logger.info(f"\nRunning conll_eval.py on test set with {ckpt_for_eval.name} ...")
-            conll_eval_script = Path(__file__).parent / "conll_eval.py"
+            conll_eval_script = Path(os.getcwd()) / "conll_eval.py"
             cmd = [
                 sys.executable, str(conll_eval_script),
                 "--checkpoint", str(ckpt_for_eval),
@@ -815,7 +829,7 @@ def parse_args():
 
     # Data / run identity
     p.add_argument("--data-dir", type=str, default="data")
-    p.add_argument("--output-dir", type=str, default="output")
+    p.add_argument("--output-dir", type=str, default="/Volumes/jnj_polyphonic_deid/default/cdcr/ms_coref")
     p.add_argument("--run-suffix", type=str, default=None,
                    help="Subdirectory name for this run (default: auto from TRAIN_MODE/dataset)")
     p.add_argument("--max-length", type=int, default=128)
@@ -825,7 +839,6 @@ def parse_args():
                     help="Total batch size across all GPUs")
     p.add_argument("--micro-batch-size", type=int, default=128,
                     help="Forward pass chunk size per GPU (controls GPU memory)")
-    p.add_argument("--k", type=int, default=2)
     p.add_argument("--tau", type=float, default=1.0,
                     help="PD exponent for chain weighting")
     p.add_argument("--gamma", type=float, default=0.5,
@@ -844,8 +857,6 @@ def parse_args():
 
     # Training
     p.add_argument("--num-epochs", type=int, default=25)
-    p.add_argument("--micro-batch-size", type=int, default=128,
-                    help="Per-step batch size; gradients accumulate over batch_size/micro_batch_size steps")
     p.add_argument("--lr", type=float, default=2e-5)
     p.add_argument("--weight-decay", type=float, default=0.01)
     p.add_argument("--grad-clip", type=float, default=1.0)
@@ -868,7 +879,7 @@ def parse_args():
     p.add_argument("--world-size", type=int, default=1,
                     help="Number of GPUs (auto-detected with torchrun)")
 
-    args = p.parse_args()
+    args, _ = p.parse_known_args()
 
     # Auto-detect world size from torchrun / TorchDistributor
     if "WORLD_SIZE" in os.environ:

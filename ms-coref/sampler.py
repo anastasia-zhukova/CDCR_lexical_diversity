@@ -291,14 +291,19 @@ class PKBatchSampler(Sampler):
     """
     PK Batch Sampler with structured negative difficulty.
 
-    Each batch contains:
-      - 60% chains from a chosen subtopic (hard negatives)
-      - 20% chains from the same topic, different subtopics (medium negatives)
-      - 20% chains from anywhere (easy negatives)
-      - Remaining slots filled with singletons
+    Each batch samples P chains and takes ALL mentions from each chain,
+    so every mention in a chain sees all its coreferent mentions as positives.
+    Chains must have >= 2 mentions (guaranteed by build_dataloader filter).
 
-    Chains are sampled with complexity weights (PD, size, difficulty).
-    K=2 random mentions per chain.
+    Batch contents:
+      - 60% of chains from a chosen subtopic (hard negatives)
+      - 20% of chains from the same topic, different subtopics (medium negatives)
+      - 20% of chains from anywhere (easy negatives)
+      - Fixed number of singletons appended
+
+    P (chains per batch) is derived from batch_size and average chain size,
+    so the expected total mentions stays close to batch_size.
+    Actual batch size varies per batch since chain sizes differ.
     """
 
     def __init__(
@@ -306,7 +311,6 @@ class PKBatchSampler(Sampler):
         chain_index: ChainIndex,
         singleton_pool: SingletonPool,
         batch_size: int = 2048,
-        k: int = 2,
         subtopic_frac: float = 0.60,
         topic_frac: float = 0.20,
         random_frac: float = 0.20,
@@ -318,30 +322,29 @@ class PKBatchSampler(Sampler):
         Args:
             chain_index: Precomputed chain index.
             singleton_pool: Pool of singleton mentions.
-            batch_size: Total mentions per batch (across all GPUs before splitting).
-            k: Mentions per chain.
-            subtopic_frac: Fraction of PK slots for same-subtopic chains.
-            topic_frac: Fraction of PK slots for same-topic chains.
-            random_frac: Fraction of PK slots for random chains.
-            singleton_frac: Fraction of total batch for singletons.
-            num_batches: Fixed number of batches per epoch (None = auto from data size).
+            batch_size: Target total mentions per batch (used to derive P).
+            subtopic_frac: Fraction of chain slots for same-subtopic chains.
+            topic_frac: Fraction of chain slots for same-topic chains.
+            random_frac: Fraction of chain slots for random chains.
+            singleton_frac: Fraction of batch_size reserved for singletons.
+            num_batches: Fixed number of batches per epoch (None = auto).
             seed: Random seed for reproducibility.
         """
         self.chain_index = chain_index
         self.singleton_pool = singleton_pool
         self.batch_size = batch_size
-        self.k = k
         self.subtopic_frac = subtopic_frac
         self.topic_frac = topic_frac
         self.random_frac = random_frac
         self.singleton_frac = singleton_frac
         self.seed = seed
 
-        # Compute slot counts
-        n_singleton_slots = int(batch_size * singleton_frac)
-        n_pk_slots = batch_size - n_singleton_slots
-        self.n_chains = n_pk_slots // k
-        self.n_singletons = n_singleton_slots
+        # Derive P from average chain size so expected batch ≈ batch_size
+        total_chain_mentions = sum(len(v) for v in chain_index.chain_to_indices.values())
+        avg_chain_size = total_chain_mentions / max(len(chain_index.all_chains), 1)
+        n_pk_slots = int(batch_size * (1 - singleton_frac))
+        self.n_chains = max(1, round(n_pk_slots / avg_chain_size))
+        self.n_singletons = int(batch_size * singleton_frac)
 
         self.n_subtopic = int(self.n_chains * subtopic_frac)
         self.n_topic = int(self.n_chains * topic_frac)
@@ -351,18 +354,13 @@ class PKBatchSampler(Sampler):
         if num_batches is not None:
             self._num_batches = num_batches
         else:
-            total_mentions = sum(
-                len(v) for v in chain_index.chain_to_indices.values()
-            ) + len(singleton_pool.indices)
-            self._num_batches = max(1, total_mentions // batch_size)
+            self._num_batches = max(1, total_chain_mentions // n_pk_slots)
 
         logger.info(
-            f"PKBatchSampler: batch_size={batch_size}, k={k}, "
+            f"PKBatchSampler: target_batch={batch_size}, avg_chain_size={avg_chain_size:.1f}, "
             f"chains/batch={self.n_chains} "
-            f"(subtopic={self.n_subtopic}, topic={self.n_topic}, "
-            f"random={self.n_random}), "
-            f"singletons={self.n_singletons}, "
-            f"batches/epoch={self._num_batches}"
+            f"(subtopic={self.n_subtopic}, topic={self.n_topic}, random={self.n_random}), "
+            f"singletons={self.n_singletons}, batches/epoch={self._num_batches}"
         )
 
     def __len__(self):
@@ -478,11 +476,8 @@ class PKBatchSampler(Sampler):
             yield batch_indices
 
     def _sample_k_from_chain(self, chain_id, batch_indices, rng):
-        """Sample K mentions from a chain and append to batch_indices."""
-        pool = self.chain_index.chain_to_indices[chain_id]
-        k = min(self.k, len(pool))
-        chosen = rng.sample(pool, k)
-        batch_indices.extend(chosen)
+        """Add ALL mentions from a chain to batch_indices."""
+        batch_indices.extend(self.chain_index.chain_to_indices[chain_id])
 
 
 # ---------------------------------------------------------------------------
@@ -591,11 +586,10 @@ def custom_tokenize_with_special_tokens(
 # Factory — build everything from the processed parquet
 # ---------------------------------------------------------------------------
 
-def build_pk_dataloader(
+def build_dataloader(
     mention_df,
     tokenizer,
     batch_size=2048,
-    k=2,
     max_length=128,
     tau=1.0,
     gamma=0.5,
@@ -606,11 +600,13 @@ def build_pk_dataloader(
     """
     Build a DataLoader with PK batch sampling from processed mention data.
 
+    All mentions from each sampled chain are included in the batch (no K cap).
+    Chains with < 2 mentions are excluded to guarantee positive pairs.
+
     Args:
         mention_df: Full DataFrame from ucdcr_mentions_processed.parquet.
         tokenizer: HuggingFace tokenizer with [E]/[/E] tokens added.
-        batch_size: Total batch size (across all GPUs).
-        k: Mentions per chain per batch.
+        batch_size: Target total mentions per batch (actual varies by chain sizes).
         max_length: Tokenizer max length.
         tau: PD exponent for chain weighting.
         gamma: Difficulty EMA exponent.
@@ -657,7 +653,6 @@ def build_pk_dataloader(
         chain_index=chain_index,
         singleton_pool=singleton_pool,
         batch_size=batch_size,
-        k=k,
         singleton_frac=singleton_frac,
         seed=seed,
     )

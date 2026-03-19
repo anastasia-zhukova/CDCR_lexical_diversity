@@ -27,7 +27,7 @@ from torch.utils.data import DataLoader
 from transformers import RobertaTokenizer
 
 from coref_utils import CorefEncoder, compute_embeddings, evaluate_clustering
-from pk_sampler import MentionDataset
+from sampler import MentionDataset
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)

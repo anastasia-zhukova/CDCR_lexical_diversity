@@ -43,7 +43,7 @@ from torch.utils.data import DataLoader
 from transformers import RobertaTokenizer
 
 from coref_utils import CorefEncoder, compute_embeddings
-from pk_sampler import MentionDataset
+from sampler import MentionDataset
 from train import EVAL_THRESHOLD
 
 ALL_DATASETS = ["HyperCoref", "NP4E", "NewsWCL50", "NIdent", "ECBplus", "ECBplusMETAm"]

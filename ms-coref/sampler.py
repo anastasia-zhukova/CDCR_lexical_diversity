@@ -450,9 +450,8 @@ class PKBatchSampler(Sampler):
                     used_chains.add(cid)
                     self._sample_k_from_chain(cid, batch_indices, rng)
 
-            # --- 5. Backfill PK slots if subtopic/topic didn't have enough ---
-            n_pk_filled = len(batch_indices) // self.k
-            n_pk_shortfall = self.n_chains - n_pk_filled
+            # --- 5. Backfill chain slots if subtopic/topic didn't have enough ---
+            n_pk_shortfall = self.n_chains - len(used_chains)
             if n_pk_shortfall > 0:
                 extra_pool = [
                     c for c in self.chain_index.all_chains if c not in used_chains
@@ -636,7 +635,7 @@ def build_dataloader(
 
     logger.info(
         f"  Non-singleton: {len(chain_df):,} mentions in "
-        f"{chain_df['coref_chain'].nunique():,} chains (>= 2 mentions, sampling up to k={k})"
+        f"{chain_df['coref_chain'].nunique():,} chains (>= 2 mentions, all included)"
     )
     logger.info(f"  Singletons: {len(singleton_df):,}")
 

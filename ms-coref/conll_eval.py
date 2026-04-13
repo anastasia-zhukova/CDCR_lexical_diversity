@@ -34,6 +34,8 @@ import logging
 from collections import defaultdict
 from pathlib import Path
 
+import yaml
+
 import numpy as np
 import pandas as pd
 import torch
@@ -43,8 +45,13 @@ from torch.utils.data import DataLoader
 from transformers import RobertaTokenizer
 
 from coref_utils import CorefEncoder, compute_embeddings
-from pk_sampler import MentionDataset
-from train import DATASETS, EVAL_THRESHOLD
+from sampler import MentionDataset
+from train import EVAL_THRESHOLD
+
+ALL_DATASETS = ["HyperCoref", "NP4E", "NewsWCL50", "NIdent", "ECBplus", "ECBplusMETAm"]
+
+# Mirror the exclusion from train.py — set to None or empty set to disable
+HYPERCOREF_EXCLUDE_TOPICS = {"Sport", "Sports"}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -307,7 +314,16 @@ def run(args):
 
     # Load data
     mention_df = pd.read_parquet(Path(args.data_dir) / "ucdcr_mentions_processed.parquet")
-    mention_df = mention_df[mention_df["dataset"].isin(DATASETS)].copy()
+    mention_df = mention_df[mention_df["dataset"].isin(args.datasets)].copy()
+
+    # Exclude HyperCoref sport topics (mirrors train.py exclusion)
+    if HYPERCOREF_EXCLUDE_TOPICS:
+        mask = (mention_df["dataset"] == "HyperCoref") & \
+               (mention_df["topic"].isin(HYPERCOREF_EXCLUDE_TOPICS))
+        n_excluded = mask.sum()
+        mention_df = mention_df[~mask].copy()
+        logger.info(f"Excluded {n_excluded:,} HyperCoref mentions with topics "
+                    f"{HYPERCOREF_EXCLUDE_TOPICS}")
 
     # Map splits: "val" also matches "validation"
     split_values = (["val", "validation"] if args.split == "val"
@@ -413,10 +429,18 @@ def run(args):
     logger.info(f"\nMetrics CSV saved to {csv_path} ({len(all_rows)} rows)")
 
 
+def _load_config():
+    cfg_path = Path(__file__).parent / "config.yaml"
+    if cfg_path.exists():
+        with open(cfg_path) as f:
+            return yaml.safe_load(f) or {}
+    return {}
+
+
 def parse_args():
+    cfg = _load_config()
     p = argparse.ArgumentParser(description="CoNLL file generation + metric CSV")
-    p.add_argument("--checkpoint", type=str,
-                   default="/Volumes/jnj_polyphonic_deid/default/cdcr/ms_coref_v2/checkpoints/best_model.pt")
+    p.add_argument("--checkpoint", type=str, default=cfg.get("checkpoint"))
     p.add_argument("--data-dir", type=str, default="data")
     p.add_argument("--output-dir", type=str, default="conll_output")
     p.add_argument("--split", type=str, default="test", choices=["val", "test"])
@@ -425,6 +449,8 @@ def parse_args():
     p.add_argument("--max-length", type=int, default=128)
     p.add_argument("--mlp-dim", type=int, default=1024)
     p.add_argument("--batch-size", type=int, default=256)
+    p.add_argument("--datasets", nargs="+", default=ALL_DATASETS,
+                   help="Datasets to evaluate on (default: all 6)")
     args, _ = p.parse_known_args()
     return args
 

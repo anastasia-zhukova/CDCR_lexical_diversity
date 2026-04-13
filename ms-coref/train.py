@@ -12,9 +12,13 @@ Training modes (configured via constants at top of file):
 """
 
 import argparse
+import json
 import logging
 import math
 import os
+import subprocess
+import sys
+import yaml
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -29,7 +33,7 @@ from torch.utils.data import DataLoader
 from transformers import RobertaTokenizer
 
 from coref_utils import CorefEncoder, compute_embeddings, evaluate_per_subtopic
-from pk_sampler import MentionDataset, build_pk_dataloader
+from sampler import MentionDataset, build_dataloader
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,6 +51,13 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 # Subset of datasets to use (from uCDCR's 12)
 DATASETS = ["HyperCoref", "NP4E", "NewsWCL50", "NIdent", "ECBplus", "ECBplusMETAm"]
+
+# HyperCoref topic exclusion: Sport/Sports topics are dominated by BBC Sport content
+# (54 subtopics, ~32K mentions, ~53% of HyperCoref). Excluded because sport entities
+# and events cluster too easily by lexical overlap (player/team names), potentially
+# inflating metrics and masking generalisation ability.
+# Set to None or empty set to disable.
+HYPERCOREF_EXCLUDE_TOPICS = {"Sport", "Sports"}
 
 # Training mode: "single", "hypercoref_main", "mix"
 #   single          – train on one dataset at a time (loop over DATASETS externally)
@@ -127,6 +138,8 @@ class MultiSimilarityLoss(nn.Module):
         # graph — avoids "does not require grad" errors on empty batches.
         loss = embeddings.sum() * 0.0
         n_valid = 0
+        n_mined_pos = 0
+        n_mined_neg = 0
         per_label_loss = defaultdict(list)
 
         for i in range(len(labels)):
@@ -150,6 +163,9 @@ class MultiSimilarityLoss(nn.Module):
             mined_pos_sim = pos_sim[pos_mining_mask]
             mined_neg_sim = neg_sim[neg_mining_mask]
 
+            n_mined_pos += pos_mining_mask.sum().item()
+            n_mined_neg += neg_mining_mask.sum().item()
+
             # Positive term
             pos_term = (1.0 / self.alpha) * torch.log(
                 1.0 + torch.sum(torch.exp(-self.alpha * (mined_pos_sim - self.lam)))
@@ -169,7 +185,8 @@ class MultiSimilarityLoss(nn.Module):
         if n_valid > 0:
             loss = loss / n_valid
 
-        return loss, per_label_loss
+        pair_stats = {"n_mined_pos": n_mined_pos, "n_mined_neg": n_mined_neg, "n_valid_anchors": n_valid}
+        return loss, per_label_loss, pair_stats
 
 
 # CorefEncoder, compute_embeddings, evaluate_clustering live in coref_utils.py
@@ -368,6 +385,16 @@ def train(args):
         logger.info(f"Filtered to {len(DATASETS)} datasets ({', '.join(DATASETS)}): "
                      f"{len(mention_df):,} mentions")
 
+    # Exclude HyperCoref sport topics
+    if HYPERCOREF_EXCLUDE_TOPICS:
+        mask = (mention_df["dataset"] == "HyperCoref") & \
+               (mention_df["topic"].isin(HYPERCOREF_EXCLUDE_TOPICS))
+        n_excluded = mask.sum()
+        mention_df = mention_df[~mask].copy()
+        if is_main:
+            logger.info(f"Excluded {n_excluded:,} HyperCoref mentions with topics "
+                        f"{HYPERCOREF_EXCLUDE_TOPICS}")
+
     # Determine training datasets based on mode
     if TRAIN_MODE == "single":
         train_datasets = [SINGLE_TRAIN_DATASET]
@@ -394,11 +421,10 @@ def train(args):
 
     # --- Build training dataloader ---
     per_gpu_batch = args.batch_size // args.world_size
-    train_dataloader, chain_index = build_pk_dataloader(
+    train_dataloader, chain_index = build_dataloader(
         mention_df=train_mention_df,
         tokenizer=tokenizer,
         batch_size=per_gpu_batch if is_distributed else args.batch_size,
-        k=args.k,
         max_length=args.max_length,
         tau=args.tau,
         gamma=args.gamma,
@@ -460,16 +486,51 @@ def train(args):
     # --- Mixed precision ---
     scaler = torch.amp.GradScaler("cuda", enabled=args.fp16)
 
-    # --- Checkpointing ---
-    ckpt_dir = Path(args.output_dir) / "checkpoints"
+    # --- Run directory (suffix separates runs cleanly) ---
+    run_dir = Path(args.output_dir) / args.run_suffix
+    ckpt_dir = run_dir / "checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    if is_main:
+        # File logger — write to /tmp (volume fs doesn't support flush), copy to run_dir at end
+        local_log_path = Path("/tmp") / f"ms_coref_{args.run_suffix}_train.log"
+        fh = logging.FileHandler(local_log_path, mode="w")
+        fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s"))
+        logging.getLogger().addHandler(fh)
+
+        # Save all hyperparameters + config to JSON
+        params = {
+            "run_suffix": args.run_suffix,
+            "train_mode": TRAIN_MODE,
+            "train_datasets": train_datasets,
+            "eval_datasets": sorted(val_resources.keys()),
+            "eval_threshold": EVAL_THRESHOLD,
+            **vars(args),
+        }
+        with open(run_dir / "params.json", "w") as f:
+            json.dump(params, f, indent=2, default=str)
+        logger.info(f"Run directory: {run_dir}")
+        logger.info(f"Params saved to {run_dir / 'params.json'}")
+
+    # Checkpoint selection tracking
+    if TRAIN_MODE == "single":
+        # Two checkpoints, both selected on the training dataset's own val split
+        best_pd_lea = 0.0
+        best_conll = 0.0
+    else:
+        # One checkpoint selected by avg pd_LEA F1 across all datasets
+        best_val_f1 = 0.0
+
+    # Per-epoch metrics accumulated in memory, written fully each epoch
+    # (avoids Illegal seek on Databricks volume filesystems which don't support append mode)
+    metrics_log_path = run_dir / "metrics_log.jsonl"
+    metrics_log_rows = []
 
     # --- Training ---
     if is_main:
         logger.info(f"Starting training: {args.num_epochs} epochs, "
                      f"batch_size={args.batch_size}, lr={args.lr}")
 
-    best_val_f1 = 0.0
     global_step = 0
 
     for epoch in range(args.num_epochs):
@@ -477,6 +538,9 @@ def train(args):
         epoch_loss = 0.0
         epoch_steps = 0
         epoch_chain_losses = defaultdict(list)
+        epoch_mined_pos = 0
+        epoch_mined_neg = 0
+        epoch_valid_anchors = 0
         t0 = time.time()
 
         for batch_idx, batch in enumerate(train_dataloader):
@@ -503,31 +567,24 @@ def train(args):
                         )
                     emb_chunks.append(chunk_emb)
 
-            all_emb = torch.cat(emb_chunks, dim=0)  # (B, 2048) detached
+            all_emb = torch.cat(emb_chunks, dim=0)  # (B, D) detached
 
-                micro_labels = int_labels[micro_start:micro_end] (on detached embeddings)
-                if is_distributed:
-                    all_emb_gathered, all_labels = gather_embeddings(
-                    all_emb, micro_labels
-                )
-                else:
-                    all_emb_gathered, all_labels = all_emb, micro_labels
-
-                loss, per_label_losses = ms_loss_fn(all_embeddings, all_labels)
-
-            # Backprop through the loss to get gradients on embeddings only
-            # (no model graph involved yet — this is cheap)
-            scaler.scale(loss).backward()
-            # emb_grad shape: (B_gathered, 2048) — gradient of loss w.r.t. embeddings
-            emb_grad = all_emb_gathered.grad.detach().clone()
-
-            # If distributed, slice back to local shard
+            # --- Phase 2: Compute MS Loss on full batch, backprop to embeddings only ---
+            all_emb.requires_grad_(True)
             if is_distributed:
-                rank = dist.get_rank()
-                emb_grad = emb_grad[rank * B : (rank + 1) * B]
+                all_emb_gathered, all_labels = gather_embeddings(all_emb, int_labels)
+            else:
+                all_emb_gathered, all_labels = all_emb, int_labels
+
+            with torch.amp.autocast("cuda", enabled=args.fp16):
+                loss, per_label_losses, pair_stats = ms_loss_fn(all_emb_gathered, all_labels)
+
+            scaler.scale(loss).backward()
+            # emb_grad: gradient of loss w.r.t. local embeddings (B, D)
+            emb_grad = all_emb.grad.detach().clone()
 
             # --- Phase 3: Re-forward each micro-batch WITH grad ---
-            # Use pre-computed emb_grad to drive backward through model.
+            # Use pre-computed emb_grad to drive backward through the model.
             # Only one micro-batch's activations are in memory at a time.
             optimizer.zero_grad()
             for start in range(0, B, mb):
@@ -536,8 +593,7 @@ def train(args):
                     chunk_emb = model(
                         input_ids[start:end], attention_mask[start:end]
                     )
-                # Backprop this chunk using pre-computed embedding gradients.
-                # This is equivalent to: (d_loss/d_emb) * (d_emb/d_theta)
+                # Equivalent to: (d_loss/d_emb) * (d_emb/d_theta)
                 chunk_emb.backward(emb_grad[start:end])
 
             if args.grad_clip > 0:
@@ -548,11 +604,18 @@ def train(args):
             scaler.update()
             scheduler.step()
 
-            # batch_loss = sum(loss_i / n_micros) = mean loss across micro-batches
-            loss_val = batch_loss
+            loss_val = loss.item()
             epoch_loss += loss_val
             epoch_steps += 1
             global_step += 1
+
+            # Accumulate per-chain losses for difficulty EMA update at epoch end
+            for label_val, losses in per_label_losses.items():
+                epoch_chain_losses[label_val].extend(losses)
+
+            epoch_mined_pos += pair_stats["n_mined_pos"]
+            epoch_mined_neg += pair_stats["n_mined_neg"]
+            epoch_valid_anchors += pair_stats["n_valid_anchors"]
 
             # Logging
             if is_main and global_step % args.log_every == 0:
@@ -569,9 +632,14 @@ def train(args):
         avg_loss = epoch_loss / max(epoch_steps, 1)
 
         if is_main:
+            avg_pos = epoch_mined_pos / max(epoch_steps, 1)
+            avg_neg = epoch_mined_neg / max(epoch_steps, 1)
+            avg_anchors = epoch_valid_anchors / max(epoch_steps, 1)
             logger.info(
                 f"Epoch {epoch+1} complete: avg_loss={avg_loss:.4f}, "
-                f"time={epoch_time:.0f}s"
+                f"time={epoch_time:.0f}s  |  "
+                f"avg mined pairs/batch: pos={avg_pos:.1f}  neg={avg_neg:.1f}  "
+                f"valid_anchors={avg_anchors:.1f}"
             )
 
         # Update chain difficulty EMA
@@ -612,6 +680,7 @@ def train(args):
                 torch.cuda.empty_cache()
 
             avg_pd_lea_f1 = np.mean([eval_metrics[ds]["pd_lea_f1"] for ds in dataset_names])
+            avg_conll_f1 = np.mean([eval_metrics[ds]["conll_f1"] for ds in dataset_names])
 
             # Log per-dataset results
             for ds_name in dataset_names:
@@ -624,62 +693,155 @@ def train(args):
                     f"pd_LEA={m['pd_lea_f1']:.4f} (P={m['pd_lea_precision']:.4f} R={m['pd_lea_recall']:.4f})  "
                     f"clusters: gold={m['n_gold_clusters']} pred={m['n_pred_clusters']}"
                 )
-            avg_conll_f1 = np.mean([eval_metrics[ds]["conll_f1"] for ds in dataset_names])
             logger.info(f"  Avg pd_LEA F1 = {avg_pd_lea_f1:.4f}  Avg CoNLL F1 = {avg_conll_f1:.4f}  (threshold={EVAL_THRESHOLD})")
 
-            # Save best checkpoint
-            if avg_pd_lea_f1 > best_val_f1:
-                best_val_f1 = avg_pd_lea_f1
-                ckpt_path = ckpt_dir / "best_model.pt"
-                torch.save({
-                    "epoch": epoch + 1,
-                    "model_state_dict": raw_model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "scheduler_state_dict": scheduler.state_dict(),
-                    "best_avg_pd_lea_f1": best_val_f1,
-                    "best_threshold": EVAL_THRESHOLD,
-                    "train_mode": TRAIN_MODE,
-                    "train_datasets": train_datasets,
-                    "all_metrics": {
-                        ds: {k: float(v) for k, v in m.items()}
-                        for ds, m in eval_metrics.items()
-                    },
-                    "args": vars(args),
-                }, ckpt_path)
-                logger.info(f"  New best model saved: avg pd_LEA F1={best_val_f1:.4f}")
+            # Shared checkpoint payload (reused for all saves this epoch)
+            ckpt_payload = {
+                "epoch": epoch + 1,
+                "model_state_dict": raw_model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
+                "best_threshold": EVAL_THRESHOLD,
+                "train_mode": TRAIN_MODE,
+                "train_datasets": train_datasets,
+                "all_metrics": {
+                    ds: {k: float(v) for k, v in m.items()}
+                    for ds, m in eval_metrics.items()
+                },
+                "args": vars(args),
+            }
+
+            if TRAIN_MODE == "single":
+                # Select checkpoints based on SINGLE_TRAIN_DATASET val split only
+                sel_m = eval_metrics[SINGLE_TRAIN_DATASET]
+                sel_pd_lea = sel_m["pd_lea_f1"]
+                sel_conll = sel_m["conll_f1"]
+
+                if sel_pd_lea > best_pd_lea:
+                    best_pd_lea = sel_pd_lea
+                    _safe_torch_save({**ckpt_payload, "selection_metric": "pd_lea_f1",
+                                      "selection_dataset": SINGLE_TRAIN_DATASET,
+                                      "selection_value": sel_pd_lea},
+                                     ckpt_dir / "best_model_pd_lea.pt")
+                    logger.info(f"  New best (pd_LEA): {sel_pd_lea:.4f} on {SINGLE_TRAIN_DATASET} val")
+
+                if sel_conll > best_conll:
+                    best_conll = sel_conll
+                    _safe_torch_save({**ckpt_payload, "selection_metric": "conll_f1",
+                                      "selection_dataset": SINGLE_TRAIN_DATASET,
+                                      "selection_value": sel_conll},
+                                     ckpt_dir / "best_model_conll.pt")
+                    logger.info(f"  New best (CoNLL): {sel_conll:.4f} on {SINGLE_TRAIN_DATASET} val")
+            else:
+                # mix / hypercoref_main: select by avg pd_LEA across all datasets
+                if avg_pd_lea_f1 > best_val_f1:
+                    best_val_f1 = avg_pd_lea_f1
+                    _safe_torch_save({**ckpt_payload, "best_avg_pd_lea_f1": best_val_f1},
+                                     ckpt_dir / "best_model.pt")
+                    logger.info(f"  New best (avg pd_LEA): {best_val_f1:.4f}")
+
+            # Write metrics log — full overwrite each epoch (volume fs doesn't support append)
+            metrics_log_rows.append({
+                "epoch": epoch + 1,
+                "avg_pd_lea_f1": float(avg_pd_lea_f1),
+                "avg_conll_f1": float(avg_conll_f1),
+                "per_dataset": {
+                    ds: {k: float(v) for k, v in m.items()}
+                    for ds, m in eval_metrics.items()
+                },
+            })
+            with open(metrics_log_path, "w") as f:
+                for row in metrics_log_rows:
+                    f.write(json.dumps(row) + "\n")
 
         # Save periodic checkpoint (model-only to stay within filesystem limits)
         if is_main and (epoch + 1) % args.save_every == 0:
             raw_model = model.module if is_distributed else model
             ckpt_path = ckpt_dir / f"epoch_{epoch+1}.pt"
-            torch.save({
+            _safe_torch_save({
                 "epoch": epoch + 1,
                 "model_state_dict": raw_model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "scheduler_state_dict": scheduler.state_dict(),
-                "best_pd_lea_f1": best_val_f1,
                 "train_mode": TRAIN_MODE,
                 "train_datasets": train_datasets,
                 "args": vars(args),
             }, ckpt_path)
 
     if is_main:
-        logger.info(f"Training complete. Best avg pd_LEA F1: {best_val_f1:.4f}")
+        if TRAIN_MODE == "single":
+            logger.info(f"Training complete. Best pd_LEA={best_pd_lea:.4f}  CoNLL={best_conll:.4f}  "
+                        f"(on {SINGLE_TRAIN_DATASET} val)")
+        else:
+            logger.info(f"Training complete. Best avg pd_LEA F1: {best_val_f1:.4f}")
 
     if is_distributed:
         dist.destroy_process_group()
+
+    # Copy train log from /tmp to volume now that training is complete
+    if is_main:
+        try:
+            fh.close()
+            logging.getLogger().removeHandler(fh)
+            dest_log = run_dir / "train.log"
+            with open(local_log_path, "rb") as fsrc, open(dest_log, "wb") as fdst:
+                while buf := fsrc.read(64 * 1024 * 1024):
+                    fdst.write(buf)
+            logger.info(f"Train log saved to {dest_log}")
+        except Exception as e:
+            logger.warning(f"Could not copy train log to volume: {e} (kept at {local_log_path})")
+
+    # --- Post-training inference on test set ---
+    # Only run on main process, after distributed teardown.
+    # Uses best_model_pd_lea.pt (single mode) or best_model.pt (mix/hypercoref_main).
+    if is_main:
+        if TRAIN_MODE == "single":
+            ckpt_for_eval = ckpt_dir / "best_model_pd_lea.pt"
+        else:
+            ckpt_for_eval = ckpt_dir / "best_model.pt"
+
+        if ckpt_for_eval.exists():
+            logger.info(f"\nRunning conll_eval.py on test set with {ckpt_for_eval.name} ...")
+            conll_eval_script = Path(os.getcwd()) / "conll_eval.py"
+            cmd = [
+                sys.executable, str(conll_eval_script),
+                "--checkpoint", str(ckpt_for_eval),
+                "--data-dir", args.data_dir,
+                "--output-dir", str(run_dir / "conll_output"),
+                "--split", "test",
+                "--setting", args.run_suffix,
+                "--max-length", str(args.max_length),
+                "--mlp-dim", str(args.mlp_dim),
+                "--batch-size", str(args.val_batch_size),
+            ]
+            result = subprocess.run(cmd, capture_output=False)
+            if result.returncode != 0:
+                logger.warning(f"conll_eval.py exited with code {result.returncode}")
+            else:
+                logger.info("conll_eval.py completed successfully.")
+        else:
+            logger.warning(f"No checkpoint found at {ckpt_for_eval}, skipping conll_eval.")
 
 
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
+def _load_config():
+    cfg_path = Path(__file__).parent / "config.yaml"
+    if cfg_path.exists():
+        with open(cfg_path) as f:
+            return yaml.safe_load(f) or {}
+    return {}
+
+
 def parse_args():
+    cfg = _load_config()
     p = argparse.ArgumentParser(description="MS Loss coreference training")
 
-    # Data
+    # Data / run identity
     p.add_argument("--data-dir", type=str, default="data")
-    p.add_argument("--output-dir", type=str, default="output")
+    p.add_argument("--output-dir", type=str, default=cfg.get("output_dir"))
+    p.add_argument("--run-suffix", type=str, default=None,
+                   help="Subdirectory name for this run (default: auto from TRAIN_MODE/dataset)")
     p.add_argument("--max-length", type=int, default=128)
 
     # PK Sampling
@@ -687,7 +849,6 @@ def parse_args():
                     help="Total batch size across all GPUs")
     p.add_argument("--micro-batch-size", type=int, default=128,
                     help="Forward pass chunk size per GPU (controls GPU memory)")
-    p.add_argument("--k", type=int, default=2)
     p.add_argument("--tau", type=float, default=1.0,
                     help="PD exponent for chain weighting")
     p.add_argument("--gamma", type=float, default=0.5,
@@ -706,8 +867,6 @@ def parse_args():
 
     # Training
     p.add_argument("--num-epochs", type=int, default=25)
-    p.add_argument("--micro-batch-size", type=int, default=128,
-                    help="Per-step batch size; gradients accumulate over batch_size/micro_batch_size steps")
     p.add_argument("--lr", type=float, default=2e-5)
     p.add_argument("--weight-decay", type=float, default=0.01)
     p.add_argument("--grad-clip", type=float, default=1.0)
@@ -730,11 +889,25 @@ def parse_args():
     p.add_argument("--world-size", type=int, default=1,
                     help="Number of GPUs (auto-detected with torchrun)")
 
-    args = p.parse_args()
+    args, _ = p.parse_known_args()
 
     # Auto-detect world size from torchrun / TorchDistributor
     if "WORLD_SIZE" in os.environ:
         args.world_size = int(os.environ["WORLD_SIZE"])
+
+    # Auto-derive run suffix from training config if not provided
+    if args.run_suffix is None:
+        all_six = ["HyperCoref", "NP4E", "NewsWCL50", "NIdent", "ECBplus", "ECBplusMETAm"]
+        if TRAIN_MODE == "single":
+            args.run_suffix = f"single_{SINGLE_TRAIN_DATASET}"
+        elif TRAIN_MODE == "hypercoref_main":
+            args.run_suffix = "hypercoref_main"
+        elif sorted(DATASETS) == sorted(all_six):
+            args.run_suffix = "mix"
+        else:
+            # Subset mix — encode the dataset names to avoid collision
+            ds_tag = "_".join(sorted(DATASETS))
+            args.run_suffix = f"mix_{ds_tag}"
 
     return args
 

@@ -35,3 +35,4 @@ CL_COREF/wandb
 cl-coref/wandb
 cl-coref/logs
 cl-coref/predictions
+ms-coref/config.yaml

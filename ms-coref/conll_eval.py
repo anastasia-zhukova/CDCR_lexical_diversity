@@ -34,6 +34,8 @@ import logging
 from collections import defaultdict
 from pathlib import Path
 
+import yaml
+
 import numpy as np
 import pandas as pd
 import torch
@@ -427,10 +429,18 @@ def run(args):
     logger.info(f"\nMetrics CSV saved to {csv_path} ({len(all_rows)} rows)")
 
 
+def _load_config():
+    cfg_path = Path(__file__).parent / "config.yaml"
+    if cfg_path.exists():
+        with open(cfg_path) as f:
+            return yaml.safe_load(f) or {}
+    return {}
+
+
 def parse_args():
+    cfg = _load_config()
     p = argparse.ArgumentParser(description="CoNLL file generation + metric CSV")
-    p.add_argument("--checkpoint", type=str,
-                   default="/Volumes/jnj_polyphonic_deid/default/cdcr/ms_coref_v2/checkpoints/best_model.pt")
+    p.add_argument("--checkpoint", type=str, default=cfg.get("checkpoint"))
     p.add_argument("--data-dir", type=str, default="data")
     p.add_argument("--output-dir", type=str, default="conll_output")
     p.add_argument("--split", type=str, default="test", choices=["val", "test"])

@@ -20,6 +20,8 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+import yaml
+
 import numpy as np
 import pandas as pd
 import torch
@@ -399,10 +401,18 @@ def run(args):
     logger.info(f"Sweep results saved to {sweep_path}")
 
 
+def _load_config():
+    cfg_path = Path(__file__).parent / "config.yaml"
+    if cfg_path.exists():
+        with open(cfg_path) as f:
+            return yaml.safe_load(f) or {}
+    return {}
+
+
 def parse_args():
+    cfg = _load_config()
     p = argparse.ArgumentParser()
-    p.add_argument("--checkpoint", type=str,
-                   default="/Volumes/jnj_polyphonic_deid/default/cdcr/ms_coref/checkpoints/best_model.pt")
+    p.add_argument("--checkpoint", type=str, default=cfg.get("checkpoint"))
     p.add_argument("--data-dir", type=str, default="data")
     p.add_argument("--output-dir", type=str, default="newsWCL50_analysis")
     p.add_argument("--max-length", type=int, default=128)

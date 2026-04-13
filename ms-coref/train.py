@@ -18,6 +18,7 @@ import math
 import os
 import subprocess
 import sys
+import yaml
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -824,12 +825,21 @@ def train(args):
 # CLI
 # ---------------------------------------------------------------------------
 
+def _load_config():
+    cfg_path = Path(__file__).parent / "config.yaml"
+    if cfg_path.exists():
+        with open(cfg_path) as f:
+            return yaml.safe_load(f) or {}
+    return {}
+
+
 def parse_args():
+    cfg = _load_config()
     p = argparse.ArgumentParser(description="MS Loss coreference training")
 
     # Data / run identity
     p.add_argument("--data-dir", type=str, default="data")
-    p.add_argument("--output-dir", type=str, default="/Volumes/jnj_polyphonic_deid/default/cdcr/ms_coref")
+    p.add_argument("--output-dir", type=str, default=cfg.get("output_dir"))
     p.add_argument("--run-suffix", type=str, default=None,
                    help="Subdirectory name for this run (default: auto from TRAIN_MODE/dataset)")
     p.add_argument("--max-length", type=int, default=128)

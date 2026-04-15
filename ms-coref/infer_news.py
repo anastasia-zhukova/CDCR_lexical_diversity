@@ -402,7 +402,8 @@ def run(args):
 
 
 def _load_config():
-    cfg_path = Path(__file__).parent / "config.yaml"
+    base = Path(__file__).parent if "__file__" in dir() else Path.cwd()
+    cfg_path = base / "config.yaml"
     if cfg_path.exists():
         with open(cfg_path) as f:
             return yaml.safe_load(f) or {}

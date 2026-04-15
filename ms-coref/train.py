@@ -264,9 +264,13 @@ class LabelEncoder:
 
 
 
-def build_val_resources(mention_df, tokenizer, max_length, val_batch_size, num_workers):
+def build_val_resources(mention_df, tokenizer, max_length, val_batch_size, num_workers,
+                        datasets=None):
     """
     Build per-dataset validation dataloaders, PD tuples, and subtopic IDs.
+
+    Args:
+        datasets: optional list of dataset names to include. If None, all datasets are used.
 
     Returns:
         val_resources: dict of dataset_name -> {
@@ -281,6 +285,8 @@ def build_val_resources(mention_df, tokenizer, max_length, val_batch_size, num_w
     val_splits = mention_df[
         mention_df["split"].isin(["val", "validation"])
     ]
+    if datasets is not None:
+        val_splits = val_splits[val_splits["dataset"].isin(datasets)]
 
     for dataset_name, ds_df in val_splits.groupby("dataset"):
         ds_df = ds_df.reset_index(drop=True)
@@ -435,15 +441,21 @@ def train(args):
     if is_main:
         logger.info(f"Training dataloader: {len(train_dataloader)} batches/epoch")
 
-    # --- Build per-dataset validation dataloaders (always all DATASETS) ---
+    # --- Build per-dataset validation dataloaders ---
+    # In single mode, evaluate only on the training dataset's own val split.
+    val_datasets = [SINGLE_TRAIN_DATASET] if TRAIN_MODE == "single" else None
     val_resources = build_val_resources(
-        mention_df, tokenizer, args.max_length, args.val_batch_size, args.num_workers
+        mention_df, tokenizer, args.max_length, args.val_batch_size, args.num_workers,
+        datasets=val_datasets,
     )
     if is_main:
         for ds_name, res in sorted(val_resources.items()):
             logger.info(f"  Val {ds_name:20s}: {res['n_mentions']:>6,} mentions  "
                         f"{res['n_subtopics']:>4} subtopics")
-        logger.info(f"  Monitor metric: avg pd_LEA F1 across all {len(val_resources)} datasets")
+        if TRAIN_MODE == "single":
+            logger.info(f"  Monitor metric: pd_LEA F1 on {SINGLE_TRAIN_DATASET} val")
+        else:
+            logger.info(f"  Monitor metric: avg pd_LEA F1 across all {len(val_resources)} datasets")
         logger.info(f"  Clustering: per-subtopic (matching CDCR evaluation protocol)")
 
     # --- Model ---
@@ -514,9 +526,7 @@ def train(args):
 
     # Checkpoint selection tracking
     if TRAIN_MODE == "single":
-        # Two checkpoints, both selected on the training dataset's own val split
         best_pd_lea = 0.0
-        best_conll = 0.0
     else:
         # One checkpoint selected by avg pd_LEA F1 across all datasets
         best_val_f1 = 0.0
@@ -693,7 +703,10 @@ def train(args):
                     f"pd_LEA={m['pd_lea_f1']:.4f} (P={m['pd_lea_precision']:.4f} R={m['pd_lea_recall']:.4f})  "
                     f"clusters: gold={m['n_gold_clusters']} pred={m['n_pred_clusters']}"
                 )
-            logger.info(f"  Avg pd_LEA F1 = {avg_pd_lea_f1:.4f}  Avg CoNLL F1 = {avg_conll_f1:.4f}  (threshold={EVAL_THRESHOLD})")
+            if TRAIN_MODE == "single":
+                logger.info(f"  pd_LEA F1 = {avg_pd_lea_f1:.4f}  CoNLL F1 = {avg_conll_f1:.4f}  (threshold={EVAL_THRESHOLD})")
+            else:
+                logger.info(f"  Avg pd_LEA F1 = {avg_pd_lea_f1:.4f}  Avg CoNLL F1 = {avg_conll_f1:.4f}  (threshold={EVAL_THRESHOLD})")
 
             # Shared checkpoint payload (reused for all saves this epoch)
             ckpt_payload = {
@@ -715,7 +728,6 @@ def train(args):
                 # Select checkpoints based on SINGLE_TRAIN_DATASET val split only
                 sel_m = eval_metrics[SINGLE_TRAIN_DATASET]
                 sel_pd_lea = sel_m["pd_lea_f1"]
-                sel_conll = sel_m["conll_f1"]
 
                 if sel_pd_lea > best_pd_lea:
                     best_pd_lea = sel_pd_lea
@@ -723,21 +735,21 @@ def train(args):
                                       "selection_dataset": SINGLE_TRAIN_DATASET,
                                       "selection_value": sel_pd_lea},
                                      ckpt_dir / "best_model_pd_lea.pt")
+                    _safe_torch_save({"epoch": epoch + 1, "model_state_dict": raw_model.state_dict(),
+                                      "train_mode": TRAIN_MODE, "train_datasets": train_datasets,
+                                      "args": vars(args)},
+                                     ckpt_dir / "best_model_pd_lea_weights.pt")
                     logger.info(f"  New best (pd_LEA): {sel_pd_lea:.4f} on {SINGLE_TRAIN_DATASET} val")
-
-                if sel_conll > best_conll:
-                    best_conll = sel_conll
-                    _safe_torch_save({**ckpt_payload, "selection_metric": "conll_f1",
-                                      "selection_dataset": SINGLE_TRAIN_DATASET,
-                                      "selection_value": sel_conll},
-                                     ckpt_dir / "best_model_conll.pt")
-                    logger.info(f"  New best (CoNLL): {sel_conll:.4f} on {SINGLE_TRAIN_DATASET} val")
             else:
                 # mix / hypercoref_main: select by avg pd_LEA across all datasets
                 if avg_pd_lea_f1 > best_val_f1:
                     best_val_f1 = avg_pd_lea_f1
                     _safe_torch_save({**ckpt_payload, "best_avg_pd_lea_f1": best_val_f1},
                                      ckpt_dir / "best_model.pt")
+                    _safe_torch_save({"epoch": epoch + 1, "model_state_dict": raw_model.state_dict(),
+                                      "train_mode": TRAIN_MODE, "train_datasets": train_datasets,
+                                      "args": vars(args)},
+                                     ckpt_dir / "best_model_weights.pt")
                     logger.info(f"  New best (avg pd_LEA): {best_val_f1:.4f}")
 
             # Write metrics log — full overwrite each epoch (volume fs doesn't support append)
@@ -768,8 +780,7 @@ def train(args):
 
     if is_main:
         if TRAIN_MODE == "single":
-            logger.info(f"Training complete. Best pd_LEA={best_pd_lea:.4f}  CoNLL={best_conll:.4f}  "
-                        f"(on {SINGLE_TRAIN_DATASET} val)")
+            logger.info(f"Training complete. Best pd_LEA={best_pd_lea:.4f}  (on {SINGLE_TRAIN_DATASET} val)")
         else:
             logger.info(f"Training complete. Best avg pd_LEA F1: {best_val_f1:.4f}")
 

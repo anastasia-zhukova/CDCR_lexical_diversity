@@ -52,12 +52,21 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 # Subset of datasets to use (from uCDCR's 12)
 DATASETS = ["HyperCoref", "NP4E", "NewsWCL50", "NIdent", "ECBplus", "ECBplusMETAm"]
 
-# HyperCoref topic exclusion: Sport/Sports topics are dominated by BBC Sport content
-# (54 subtopics, ~32K mentions, ~53% of HyperCoref). Excluded because sport entities
-# and events cluster too easily by lexical overlap (player/team names), potentially
-# inflating metrics and masking generalisation ability.
-# Set to None or empty set to disable.
+# Read exclude_topics flag from config.yaml (defaults to True if not set).
+def _read_exclude_topics_flag():
+    cfg_path = Path(__file__).parent / "config.yaml"
+    if cfg_path.exists():
+        with open(cfg_path) as _f:
+            return (yaml.safe_load(_f) or {}).get("exclude_topics", True)
+    return True
+
+EXCLUDE_TOPICS = _read_exclude_topics_flag()
+
+# Per-dataset topic exclusion sets (only used when EXCLUDE_TOPICS=True).
 HYPERCOREF_EXCLUDE_TOPICS = {"Sport", "Sports"}
+WECENG_EXCLUDE_TOPICS = {
+    "Awards", "Beauty Pageant", "Concert", "Contest", "Festival", "Solar Eclipse"
+}
 
 # Training mode: "single", "hypercoref_main", "mix"
 #   single          – train on one dataset at a time (loop over DATASETS externally)
@@ -392,7 +401,7 @@ def train(args):
                      f"{len(mention_df):,} mentions")
 
     # Exclude HyperCoref sport topics
-    if HYPERCOREF_EXCLUDE_TOPICS:
+    if EXCLUDE_TOPICS and HYPERCOREF_EXCLUDE_TOPICS:
         mask = (mention_df["dataset"] == "HyperCoref") & \
                (mention_df["topic"].isin(HYPERCOREF_EXCLUDE_TOPICS))
         n_excluded = mask.sum()
@@ -400,6 +409,16 @@ def train(args):
         if is_main:
             logger.info(f"Excluded {n_excluded:,} HyperCoref mentions with topics "
                         f"{HYPERCOREF_EXCLUDE_TOPICS}")
+
+    # Exclude WECEng topics
+    if EXCLUDE_TOPICS and WECENG_EXCLUDE_TOPICS:
+        mask = (mention_df["dataset"] == "WECEng") & \
+               (mention_df["topic"].isin(WECENG_EXCLUDE_TOPICS))
+        n_excluded = mask.sum()
+        mention_df = mention_df[~mask].copy()
+        if is_main:
+            logger.info(f"Excluded {n_excluded:,} WECEng mentions with topics "
+                        f"{WECENG_EXCLUDE_TOPICS}")
 
     # Determine training datasets based on mode
     if TRAIN_MODE == "single":

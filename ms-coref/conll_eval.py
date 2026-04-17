@@ -50,8 +50,21 @@ from train import EVAL_THRESHOLD
 
 ALL_DATASETS = ["HyperCoref", "NP4E", "NewsWCL50", "NIdent", "ECBplus", "ECBplusMETAm"]
 
-# Mirror the exclusion from train.py — set to None or empty set to disable
+# Read exclude_topics flag from config.yaml (defaults to True if not set).
+def _read_exclude_topics_flag():
+    cfg_path = Path(__file__).parent / "config.yaml"
+    if cfg_path.exists():
+        with open(cfg_path) as _f:
+            return (yaml.safe_load(_f) or {}).get("exclude_topics", True)
+    return True
+
+EXCLUDE_TOPICS = _read_exclude_topics_flag()
+
+# Per-dataset topic exclusion sets (only used when EXCLUDE_TOPICS=True).
 HYPERCOREF_EXCLUDE_TOPICS = {"Sport", "Sports"}
+WECENG_EXCLUDE_TOPICS = {
+    "Awards", "Beauty Pageant", "Concert", "Contest", "Festival", "Solar Eclipse"
+}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -317,13 +330,22 @@ def run(args):
     mention_df = mention_df[mention_df["dataset"].isin(args.datasets)].copy()
 
     # Exclude HyperCoref sport topics (mirrors train.py exclusion)
-    if HYPERCOREF_EXCLUDE_TOPICS:
+    if EXCLUDE_TOPICS and HYPERCOREF_EXCLUDE_TOPICS:
         mask = (mention_df["dataset"] == "HyperCoref") & \
                (mention_df["topic"].isin(HYPERCOREF_EXCLUDE_TOPICS))
         n_excluded = mask.sum()
         mention_df = mention_df[~mask].copy()
         logger.info(f"Excluded {n_excluded:,} HyperCoref mentions with topics "
                     f"{HYPERCOREF_EXCLUDE_TOPICS}")
+
+    # Exclude WECEng topics (mirrors train.py exclusion)
+    if EXCLUDE_TOPICS and WECENG_EXCLUDE_TOPICS:
+        mask = (mention_df["dataset"] == "WECEng") & \
+               (mention_df["topic"].isin(WECENG_EXCLUDE_TOPICS))
+        n_excluded = mask.sum()
+        mention_df = mention_df[~mask].copy()
+        logger.info(f"Excluded {n_excluded:,} WECEng mentions with topics "
+                    f"{WECENG_EXCLUDE_TOPICS}")
 
     # Map splits: "val" also matches "validation"
     split_values = (["val", "validation"] if args.split == "val"

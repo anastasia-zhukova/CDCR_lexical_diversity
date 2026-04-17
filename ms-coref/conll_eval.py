@@ -52,7 +52,8 @@ ALL_DATASETS = ["HyperCoref", "NP4E", "NewsWCL50", "NIdent", "ECBplus", "ECBplus
 
 # Read exclude_topics flag from config.yaml (defaults to True if not set).
 def _read_exclude_topics_flag():
-    cfg_path = Path(__file__).parent / "config.yaml"
+    base = Path(__file__).parent if "__file__" in dir() else Path.cwd()
+    cfg_path = base / "config.yaml"
     if cfg_path.exists():
         with open(cfg_path) as _f:
             return (yaml.safe_load(_f) or {}).get("exclude_topics", True)

@@ -12,6 +12,7 @@ Training modes (configured via constants at top of file):
 """
 
 import argparse
+import contextlib
 import json
 import logging
 import math
@@ -73,11 +74,11 @@ WECENG_EXCLUDE_TOPICS = {
 #   single          – train on one dataset at a time (loop over DATASETS externally)
 #   hypercoref_main – train on HyperCoref, evaluate on all DATASETS
 #   mix             – train on all DATASETS combined
-TRAIN_MODE = "mix"
+TRAIN_MODE = "single"
 
 # When TRAIN_MODE == "single", which dataset to train on.
 # Ignored for other modes.  Change this (or loop externally) per run.
-SINGLE_TRAIN_DATASET = "HyperCoref"
+SINGLE_TRAIN_DATASET = "ECBplus"
 
 # Fixed clustering threshold for cosine-distance evaluation
 EVAL_THRESHOLD = 0.5
@@ -483,7 +484,7 @@ def train(args):
     model = model.to(device)
 
     if is_distributed:
-        model = DDP(model, device_ids=[local_rank], find_unused_parameters=False)
+        model = DDP(model, device_ids=[local_rank], find_unused_parameters=True)
 
     if is_main:
         n_params = sum(p.numel() for p in model.parameters())
@@ -587,12 +588,14 @@ def train(args):
             # --- Phase 1: Forward all micro-batches WITHOUT grad ---
             # Collect embeddings (small: B x 2048). RoBERTa activations
             # are freed after each chunk since there's no grad graph.
+            # Bypass DDP so the reducer isn't triggered on these forwards.
+            no_grad_model = model.module if is_distributed else model
             emb_chunks = []
             with torch.no_grad():
                 for start in range(0, B, mb):
                     end = min(start + mb, B)
                     with torch.amp.autocast("cuda", enabled=args.fp16):
-                        chunk_emb = model(
+                        chunk_emb = no_grad_model(
                             input_ids[start:end], attention_mask[start:end]
                         )
                     emb_chunks.append(chunk_emb)
@@ -616,15 +619,23 @@ def train(args):
             # --- Phase 3: Re-forward each micro-batch WITH grad ---
             # Use pre-computed emb_grad to drive backward through the model.
             # Only one micro-batch's activations are in memory at a time.
+            # Suppress DDP all-reduce until the last micro-batch so gradients
+            # accumulate locally first, then sync once per optimizer step.
             optimizer.zero_grad()
-            for start in range(0, B, mb):
+            micro_starts = list(range(0, B, mb))
+            for i, start in enumerate(micro_starts):
                 end = min(start + mb, B)
-                with torch.amp.autocast("cuda", enabled=args.fp16):
-                    chunk_emb = model(
-                        input_ids[start:end], attention_mask[start:end]
-                    )
-                # Equivalent to: (d_loss/d_emb) * (d_emb/d_theta)
-                chunk_emb.backward(emb_grad[start:end])
+                is_last = (i == len(micro_starts) - 1)
+                sync_ctx = (contextlib.nullcontext()
+                            if (not is_distributed or is_last)
+                            else model.no_sync())
+                with sync_ctx:
+                    with torch.amp.autocast("cuda", enabled=args.fp16):
+                        chunk_emb = model(
+                            input_ids[start:end], attention_mask[start:end]
+                        )
+                    # Equivalent to: (d_loss/d_emb) * (d_emb/d_theta)
+                    chunk_emb.backward(emb_grad[start:end])
 
             if args.grad_clip > 0:
                 scaler.unscale_(optimizer)

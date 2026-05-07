@@ -31,6 +31,8 @@ Usage:
 
 import argparse
 import logging
+import shutil
+import tempfile
 from collections import defaultdict
 from pathlib import Path
 
@@ -362,8 +364,13 @@ def run(args):
 
     setting = args.setting
 
-    out_dir = Path(args.output_dir) / setting / args.split
+    final_out_dir = Path(args.output_dir) / setting / args.split
+
+    # Write CoNLL files to /tmp for speed, then zip and copy to final destination
+    tmp_dir = Path(tempfile.mkdtemp(prefix="conll_eval_"))
+    out_dir = tmp_dir / setting / args.split
     out_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Writing CoNLL files to {tmp_dir} (will zip+copy to {final_out_dir})")
 
     # Validate entity/event split across all datasets (per-dataset rules applied)
     logger.info("\n--- mention_full_type entity/event split validation ---")
@@ -446,10 +453,31 @@ def run(args):
             logger.info(f"  {entity_type:8s}  {n_subtopics} subtopics written")
         logger.info(f"  CoNLL files → {ds_conll_dir}")
 
-    # Save CSV
+    # Save CSV to tmp
     csv_path = out_dir / "metrics_per_subtopic.csv"
     pd.DataFrame(all_rows).to_csv(csv_path, index=False, float_format="%.4f")
-    logger.info(f"\nMetrics CSV saved to {csv_path} ({len(all_rows)} rows)")
+    logger.info(f"\nMetrics CSV saved ({len(all_rows)} rows)")
+
+    # Zip and copy to final output directory
+    logger.info("Zipping CoNLL output...")
+    zip_path = tmp_dir / "conll_output"
+    shutil.make_archive(str(zip_path), "zip", tmp_dir, f"{setting}/{args.split}")
+    zip_file = Path(f"{zip_path}.zip")
+    logger.info(f"  Archive: {zip_file} ({zip_file.stat().st_size / 1024 / 1024:.1f} MB)")
+
+    final_out_dir.mkdir(parents=True, exist_ok=True)
+    final_zip = final_out_dir / "conll_output.zip"
+    shutil.copy2(str(zip_file), str(final_zip))
+    logger.info(f"  Copied to {final_zip}")
+
+    # Also copy the CSV directly (small file, useful without unzipping)
+    final_csv = final_out_dir / "metrics_per_subtopic.csv"
+    shutil.copy2(str(csv_path), str(final_csv))
+    logger.info(f"  CSV copied to {final_csv}")
+
+    # Cleanup tmp
+    shutil.rmtree(tmp_dir)
+    logger.info("Done.")
 
 
 def _load_config():

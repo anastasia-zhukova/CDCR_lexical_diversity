@@ -207,66 +207,39 @@ class MultiSimilarityLoss(nn.Module):
 # Cross-GPU embedding gathering
 # ---------------------------------------------------------------------------
 
-def _all_gather_sizes(local_size: int, device) -> list:
-    """All-gather the batch size from each rank. Returns list of ints."""
-    world_size = dist.get_world_size()
-    size_tensor = torch.tensor([local_size], device=device, dtype=torch.long)
-    gathered = [torch.zeros_like(size_tensor) for _ in range(world_size)]
-    dist.all_gather(gathered, size_tensor)
-    return [int(t.item()) for t in gathered]
-
-
 class GatherWithGrad(torch.autograd.Function):
-    """All-gather with variable batch sizes; gradients flow to local shard."""
+    """All-gather that allows gradients to flow back through local embeddings."""
 
     @staticmethod
-    def forward(ctx, tensor, sizes):
-        # sizes: list of ints, length = world_size, entry i = batch size on rank i
+    def forward(ctx, tensor):
         world_size = dist.get_world_size()
-        rank = dist.get_rank()
-        # Allocate per-rank-sized buffers so ranks with different batch sizes
-        # can all_gather without shape mismatch.
-        gathered = [
-            torch.zeros(sizes[i], *tensor.shape[1:],
-                        dtype=tensor.dtype, device=tensor.device)
-            for i in range(world_size)
-        ]
-        dist.all_gather(gathered, tensor.contiguous())
-        # Compute offsets so backward can slice out this rank's chunk.
-        offsets = [0]
-        for s in sizes:
-            offsets.append(offsets[-1] + s)
-        ctx.rank = rank
-        ctx.start = offsets[rank]
-        ctx.end = offsets[rank + 1]
+        gathered = [torch.zeros_like(tensor) for _ in range(world_size)]
+        dist.all_gather(gathered, tensor)
+        ctx.rank = dist.get_rank()
+        ctx.world_size = world_size
         return torch.cat(gathered, dim=0)
 
     @staticmethod
     def backward(ctx, grad_output):
-        # Gradient only flows back through this rank's slice of the gathered tensor.
-        return grad_output[ctx.start:ctx.end], None
+        # Only pass gradient for local shard
+        chunk_size = grad_output.size(0) // ctx.world_size
+        return grad_output[ctx.rank * chunk_size : (ctx.rank + 1) * chunk_size]
 
 
 def gather_embeddings(embeddings, labels_int):
     """
     Gather embeddings and labels across all GPUs.
 
-    Handles variable per-rank batch sizes (PK sampler produces irregular batches).
     In single-GPU mode, returns inputs unchanged.
     """
     if not dist.is_initialized() or dist.get_world_size() == 1:
         return embeddings, labels_int
 
-    sizes = _all_gather_sizes(embeddings.size(0), embeddings.device)
+    all_embeddings = GatherWithGrad.apply(embeddings)
 
-    all_embeddings = GatherWithGrad.apply(embeddings, sizes)
-
-    # Labels: variable-sized all_gather too.
-    gathered_labels = [
-        torch.zeros(sizes[i], dtype=labels_int.dtype, device=labels_int.device)
-        for i in range(dist.get_world_size())
-    ]
-    dist.all_gather(gathered_labels, labels_int.contiguous())
+    # Labels don't need gradients — use standard all_gather
+    gathered_labels = [torch.zeros_like(labels_int) for _ in range(dist.get_world_size())]
+    dist.all_gather(gathered_labels, labels_int)
     all_labels = torch.cat(gathered_labels, dim=0)
 
     return all_embeddings, all_labels
@@ -474,8 +447,6 @@ def train(args):
     tokenizer.add_tokens(["[E]", "[/E]"])
 
     # --- Build training dataloader ---
-    # Each rank needs a different seed; otherwise all 8 ranks sample the same
-    # chains and gather produces 8 duplicates — no speedup and misleading loss.
     per_gpu_batch = args.batch_size // args.world_size
     train_dataloader, chain_index = build_dataloader(
         mention_df=train_mention_df,
@@ -486,7 +457,7 @@ def train(args):
         gamma=args.gamma,
         singleton_frac=args.singleton_frac,
         num_workers=args.num_workers,
-        seed=args.seed + local_rank,
+        seed=args.seed,
     )
     if is_main:
         logger.info(f"Training dataloader: {len(train_dataloader)} batches/epoch")
@@ -632,16 +603,13 @@ def train(args):
             all_emb = torch.cat(emb_chunks, dim=0)  # (B, D) detached
 
             # --- Phase 2: Compute MS Loss on full batch, backprop to embeddings only ---
-            # MS loss uses exp(beta * (sim - lam)) with beta=50 — overflows in fp16.
-            # Run the loss in fp32 regardless of autocast setting.
-            all_emb = all_emb.float()
             all_emb.requires_grad_(True)
             if is_distributed:
                 all_emb_gathered, all_labels = gather_embeddings(all_emb, int_labels)
             else:
                 all_emb_gathered, all_labels = all_emb, int_labels
 
-            with torch.amp.autocast("cuda", enabled=False):
+            with torch.amp.autocast("cuda", enabled=args.fp16):
                 loss, per_label_losses, pair_stats = ms_loss_fn(all_emb_gathered, all_labels)
 
             scaler.scale(loss).backward()

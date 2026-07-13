@@ -1,0 +1,35 @@
+# Local paths for ms-coref — gitignored, not committed.
+# Copy this file to config.yaml and update paths for your machine.
+
+output_dir: /path/to/output
+checkpoint: /path/to/checkpoint/best_model.pt
+
+# Topic exclusion: when true, filters out noisy topics per dataset before
+# training and evaluation. Applies to HyperCoref (Sport/Sports) and WECEng
+# (Awards, Beauty Pageant, Concert, Contest, Festival, Solar Eclipse).
+# Set to false to run without any topic exclusion.
+exclude_topics: true
+
+# Full CoNLL evaluation configuration
+results_root: /path/to/results_and_weights
+data_dir: /path/to/data
+repo_dir: /path/to/ms-coref
+split: test
+batch_size: 256
+max_length: 128
+mlp_dim: 1024
+
+# All 12 CDCR datasets for full CoNLL evaluation
+all_datasets:
+  - HyperCoref
+  - NP4E
+  - NewsWCL50
+  - NIdent
+  - ECBplus
+  - ECBplusMETAm
+  - WECEng
+  - GVC
+  - FCC
+  - MEANTIME
+  - CD2CR
+  - CEREC

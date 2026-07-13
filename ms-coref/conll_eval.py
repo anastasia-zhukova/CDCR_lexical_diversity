@@ -22,7 +22,7 @@ CSV columns:
     ceafe_p, ceafe_r, ceafe_f1,
     conll_f1,
     lea_p, lea_r, lea_f1,
-    n_mentions, n_chains_gold, n_chains_pred
+    n_mentions, n_gold_clusters, n_pred_clusters
 
 Usage:
     python conll_eval.py --checkpoint /path/to/best_model.pt --split test
@@ -37,7 +37,6 @@ from pathlib import Path
 
 import yaml
 
-import numpy as np
 import pandas as pd
 import torch
 from scipy.cluster.hierarchy import fcluster, linkage
@@ -46,23 +45,16 @@ from torch.utils.data import DataLoader
 from transformers import RobertaTokenizer
 
 from coref_utils import CorefEncoder, compute_embeddings
+from metrics import compute_metrics_from_clusters
 from sampler import MentionDataset
 from train import EVAL_THRESHOLD
 
-ALL_DATASETS = ["HyperCoref", "NP4E", "NewsWCL50", "NIdent", "ECBplus", "ECBplusMETAm"]
+ALL_DATASETS = [
+    "HyperCoref", "NP4E", "NewsWCL50", "NIdent", "ECBplus", "ECBplusMETAm",
+    "WECEng", "GVC", "FCC", "MEANTIME", "CD2CR", "CEREC",
+]
 
-# Read exclude_topics flag from config.yaml (defaults to True if not set).
-def _read_exclude_topics_flag():
-    base = Path(__file__).parent if "__file__" in dir() else Path.cwd()
-    cfg_path = base / "config.yaml"
-    if cfg_path.exists():
-        with open(cfg_path) as _f:
-            return (yaml.safe_load(_f) or {}).get("exclude_topics", True)
-    return True
-
-EXCLUDE_TOPICS = _read_exclude_topics_flag()
-
-# Per-dataset topic exclusion sets (only used when EXCLUDE_TOPICS=True).
+# Per-dataset topic exclusion sets (only used when exclude_topics=True).
 HYPERCOREF_EXCLUDE_TOPICS = {"Sport", "Sports"}
 WECENG_EXCLUDE_TOPICS = {
     "Awards", "Beauty Pageant", "Concert", "Contest", "Festival", "Solar Eclipse"
@@ -108,109 +100,17 @@ def load_model(checkpoint_path, tokenizer, mlp_dim, device):
 
 
 # ---------------------------------------------------------------------------
-# Metrics (inline, no coref_utils dependency for per-subtopic slicing)
+# Metrics
 # ---------------------------------------------------------------------------
-
-def _f1(p, r):
-    return 2 * p * r / (p + r) if (p + r) > 0 else 0.0
-
-
-def _muc(clusters, mention_to_other):
-    tp, p = 0, 0
-    for c in clusters:
-        p += len(c) - 1
-        tp += len(c)
-        linked = {id(mention_to_other[m]) for m in c if m in mention_to_other}
-        tp -= len(linked)
-    return tp, p
-
-
-def _b3(clusters, mention_to_other_cluster):
-    from collections import Counter
-    num, den = 0.0, 0.0
-    for c in clusters:
-        counts = Counter(id(mention_to_other_cluster[m]) for m in c if m in mention_to_other_cluster)
-        correct = sum(v * v for v in counts.values())
-        num += correct / len(c)
-        den += len(c)
-    return num, den
-
-
-def _ceafe(pred_list, gold_list):
-    from scipy.optimize import linear_sum_assignment
-    scores = np.zeros((len(gold_list), len(pred_list)))
-    for i, gc in enumerate(gold_list):
-        for j, pc in enumerate(pred_list):
-            overlap = len(gc & pc)
-            scores[i, j] = 2 * overlap / (len(gc) + len(pc)) if (len(gc) + len(pc)) > 0 else 0
-    row_ind, col_ind = linear_sum_assignment(-scores)
-    sim = scores[row_ind, col_ind].sum()
-    return sim, len(pred_list), sim, len(gold_list)
-
 
 def compute_metrics_for_clusters(pred_clusters, gold_clusters):
     """
     Given pred_clusters and gold_clusters (both dicts of id -> set of indices),
     compute MUC, B³, CEAFe, LEA and CoNLL F1.
+
+    Thin wrapper around :func:`metrics.compute_metrics_from_clusters`.
     """
-    pred_list = list(pred_clusters.values())
-    gold_list = list(gold_clusters.values())
-
-    mention_to_gold = {m: c for c in gold_list for m in c}
-    mention_to_pred = {m: c for c in pred_list for m in c}
-
-    # MUC
-    mp_n, mp_d = _muc(pred_list, mention_to_gold)
-    mr_n, mr_d = _muc(gold_list, mention_to_pred)
-    muc_p = mp_n / mp_d if mp_d > 0 else 0
-    muc_r = mr_n / mr_d if mr_d > 0 else 0
-    muc_f1 = _f1(muc_p, muc_r)
-
-    # B³
-    bp_n, bp_d = _b3(pred_list, mention_to_gold)
-    br_n, br_d = _b3(gold_list, mention_to_pred)
-    b3_p = bp_n / bp_d if bp_d > 0 else 0
-    b3_r = br_n / br_d if br_d > 0 else 0
-    b3_f1 = _f1(b3_p, b3_r)
-
-    # CEAFe
-    ep_n, ep_d, er_n, er_d = _ceafe(pred_list, gold_list)
-    ceafe_p = ep_n / ep_d if ep_d > 0 else 0
-    ceafe_r = er_n / er_d if er_d > 0 else 0
-    ceafe_f1 = _f1(ceafe_p, ceafe_r)
-
-    conll_f1 = (muc_f1 + b3_f1 + ceafe_f1) / 3
-
-    # LEA
-    def _lea_num_den(inp, m2o):
-        num, den = 0.0, 0.0
-        for c in inp:
-            den += len(c)
-            if len(c) == 1:
-                m = next(iter(c))
-                if len(m2o.get(m, set())) == 1:
-                    num += 1
-            else:
-                all_links = len(c) * (len(c) - 1) / 2.0
-                common = sum(len(c & m2o.get(m, set())) - 1 for m in c) / 2.0
-                num += len(c) * (common / all_links) if all_links > 0 else 0
-        return num, den
-
-    lp_n, lp_d = _lea_num_den(pred_list, mention_to_gold)
-    lr_n, lr_d = _lea_num_den(gold_list, mention_to_pred)
-    lea_p = lp_n / lp_d if lp_d > 0 else 0
-    lea_r = lr_n / lr_d if lr_d > 0 else 0
-    lea_f1 = _f1(lea_p, lea_r)
-
-    return {
-        "muc_p": muc_p, "muc_r": muc_r, "muc_f1": muc_f1,
-        "b3_p": b3_p, "b3_r": b3_r, "b3_f1": b3_f1,
-        "ceafe_p": ceafe_p, "ceafe_r": ceafe_r, "ceafe_f1": ceafe_f1,
-        "conll_f1": conll_f1,
-        "lea_p": lea_p, "lea_r": lea_r, "lea_f1": lea_f1,
-        "n_chains_gold": len(gold_list),
-        "n_chains_pred": len(pred_list),
-    }
+    return compute_metrics_from_clusters(pred_clusters, gold_clusters)
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +232,8 @@ def run(args):
     mention_df = mention_df[mention_df["dataset"].isin(args.datasets)].copy()
 
     # Exclude HyperCoref sport topics (mirrors train.py exclusion)
-    if EXCLUDE_TOPICS and HYPERCOREF_EXCLUDE_TOPICS:
+    exclude_topics = getattr(args, "exclude_topics", True)
+    if exclude_topics and HYPERCOREF_EXCLUDE_TOPICS:
         mask = (mention_df["dataset"] == "HyperCoref") & \
                (mention_df["topic"].isin(HYPERCOREF_EXCLUDE_TOPICS))
         n_excluded = mask.sum()
@@ -341,7 +242,7 @@ def run(args):
                     f"{HYPERCOREF_EXCLUDE_TOPICS}")
 
     # Exclude WECEng topics (mirrors train.py exclusion)
-    if EXCLUDE_TOPICS and WECENG_EXCLUDE_TOPICS:
+    if exclude_topics and WECENG_EXCLUDE_TOPICS:
         mask = (mention_df["dataset"] == "WECEng") & \
                (mention_df["topic"].isin(WECENG_EXCLUDE_TOPICS))
         n_excluded = mask.sum()
@@ -502,6 +403,8 @@ def parse_args():
     p.add_argument("--batch-size", type=int, default=256)
     p.add_argument("--datasets", nargs="+", default=ALL_DATASETS,
                    help="Datasets to evaluate on (default: all 6)")
+    p.add_argument("--exclude-topics", action=argparse.BooleanOptionalAction, default=cfg.get("exclude_topics", True),
+                   help="Exclude noisy topics (HyperCoref Sport/Sports, WECEng Awards/Beauty Pageant/Concert/Contest/Festival/Solar Eclipse)")
     args, _ = p.parse_known_args()
     return args
 

@@ -18,6 +18,7 @@ import math
 import os
 import subprocess
 import sys
+import tempfile
 import yaml
 import time
 from collections import defaultdict
@@ -525,7 +526,8 @@ def train(args):
 
     if is_main:
         # File logger — write to /tmp (volume fs doesn't support flush), copy to run_dir at end
-        local_log_path = Path("/tmp") / f"ms_coref_{args.run_suffix}_train.log"
+        local_log_path = Path(tempfile.mktemp(
+            prefix=f"ms_coref_{args.run_suffix}_", suffix="_train.log", dir="/tmp"))
         fh = logging.FileHandler(local_log_path, mode="w")
         fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s"))
         logging.getLogger().addHandler(fh)
@@ -842,6 +844,7 @@ def train(args):
                 "--max-length", str(args.max_length),
                 "--mlp-dim", str(args.mlp_dim),
                 "--batch-size", str(args.val_batch_size),
+                "--exclude-topics" if EXCLUDE_TOPICS else "--no-exclude-topics",
             ]
             result = subprocess.run(cmd, capture_output=False)
             if result.returncode != 0:

@@ -20,9 +20,10 @@ import logging
 import string
 from pathlib import Path
 
-import numpy as np
 from huggingface_hub import hf_hub_download
 import pandas as pd
+
+from metrics import phrasing_diversity_calc
 
 # nltk English stopwords (fixed list, avoids nltk dependency)
 STOPWORDS = {
@@ -160,44 +161,6 @@ def compute_pd_components(row):
 
     wordset = sorted(set(mention_wo_stopwords))
     return str(mention_wo_stopwords), ",".join(wordset)
-
-
-def phrasing_diversity_calc(mentions) -> float:
-    """
-    Calculate phrasing diversity for a coreference chain.
-
-    Replicates CL_COREF/coval/eval/evaluator.py::phrasing_diversity_calc.
-
-    Args:
-        mentions: list of (mention_head, mention_wordset, mention_wo_stopwords) tuples.
-            mention_wordset is a comma-separated string of sorted unique content words.
-            mention_wo_stopwords is a string repr of list of content words.
-
-    Returns:
-        PD score (float), or 1.0 for singleton chains.
-    """
-    headwords_phrase_tree = {}
-    for mention_head, mention_wordset, mention_wo_stopwords in mentions:
-        if not mention_wo_stopwords:
-            continue
-        if mention_head not in headwords_phrase_tree:
-            headwords_phrase_tree[mention_head] = {
-                "set": {mention_wordset},
-                "list": [mention_wo_stopwords],
-            }
-        else:
-            headwords_phrase_tree[mention_head]["set"].add(mention_wordset)
-            headwords_phrase_tree[mention_head]["list"].append(mention_wo_stopwords)
-
-    sets = []
-    fractions = []
-    for _, head_properties in headwords_phrase_tree.items():
-        fractions.append(len(head_properties["set"]) / len(head_properties["list"]))
-        sets.append(len(head_properties["set"]))
-
-    n = len(mentions)
-    score = np.sum(fractions) * np.sum(sets) / n if n > 1 else 1.0
-    return float(format(score, ".3f"))
 
 
 def build_chain_table(mention_df: pd.DataFrame) -> pd.DataFrame:

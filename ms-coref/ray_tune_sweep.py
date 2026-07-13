@@ -16,6 +16,7 @@ Alternatively from terminal:
 import argparse
 import logging
 import os
+import tempfile
 from pathlib import Path
 
 import torch
@@ -153,6 +154,8 @@ def _train_trial_inner(config, data_dir):
     mb = config.get("micro_batch_size", 128)
     grad_clip = config.get("grad_clip", 1.0)
 
+    best_score = float("-inf")
+
     for epoch in range(num_epochs):
         epoch_stats = run_train_epoch(
             model,
@@ -177,13 +180,28 @@ def _train_trial_inner(config, data_dir):
             model, val_resources, device, threshold=EVAL_THRESHOLD,
         )
 
-        # Report to Ray Tune (ASHA uses this to prune)
-        ray_train.report({
+        metrics = {
             "epoch": epoch + 1,
             "pd_lea_f1": float(avg_pd_lea_f1),
             "conll_f1": float(avg_conll_f1),
             "train_loss": avg_loss,
-        })
+        }
+
+        # Only write a checkpoint when validation score improves. Databricks
+        # serverless has no local disk (everything goes to slow DBFS/Volumes),
+        # so we avoid writing on every epoch and only persist "promising"
+        # checkpoints. CheckpointConfig(checkpoint_score_attribute="pd_lea_f1")
+        # then keeps just the best one on disk, deleting superseded ones.
+        if avg_pd_lea_f1 > best_score:
+            best_score = avg_pd_lea_f1
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                torch.save(model.state_dict(), os.path.join(tmp_dir, "model.pt"))
+                checkpoint = ray_train.Checkpoint.from_directory(tmp_dir)
+                # Report to Ray Tune (ASHA uses this to prune) with checkpoint
+                ray_train.report(metrics, checkpoint=checkpoint)
+        else:
+            # Report to Ray Tune (ASHA uses this to prune) without checkpoint
+            ray_train.report(metrics)
 
 
 def run_sweep(args):
@@ -223,13 +241,15 @@ def run_sweep(args):
     trainable = tune.with_parameters(train_trial, data_dir=args.data_dir)
     trainable = tune.with_resources(trainable, {"gpu": 1})
 
-    # Keep only the best checkpoint per trial and checkpoint at most once per
-    # epoch. This drastically cuts the volume of data Ray syncs to the (slow)
-    # DBFS storage path, which is what triggers the
-    # "Saving the experiment state has already taken N seconds" warning.
+    # Keep only the single best-scoring checkpoint per trial (train_trial only
+    # ever reports a checkpoint when pd_lea_f1 improves, so writes to the slow
+    # DBFS/Volumes storage path are already rare). checkpoint_score_attribute
+    # ensures Ray keeps the highest-scoring checkpoint rather than just the
+    # most recent one, deleting superseded checkpoints automatically.
     checkpoint_config = CheckpointConfig(
-        num_to_keep=1,            # only retain the best checkpoint per trial
-        checkpoint_frequency=0,   # 0 = checkpoint at every report (once/epoch here)
+        num_to_keep=1,
+        checkpoint_score_attribute="pd_lea_f1",
+        checkpoint_score_order="max",
     )
 
     # On serverless (no local disk) we point storage_path at DBFS, which is

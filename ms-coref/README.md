@@ -115,8 +115,8 @@ python ray_tune_sweep.py \
 
 | Argument | Default | Description |
 |---|---|---|
-| `--data-dir` | — | Directory containing `ucdcr_mentions_processed.parquet` |
-| `--output-dir` | — | Ray Tune's `storage_path` for trial results |
+| `--data-dir` | from `config.yaml` (`data_dir`) | Directory containing `ucdcr_mentions_processed.parquet` |
+| `--output-dir` | from `config.yaml` (`output_dir`) | Ray Tune's `storage_path` for trial results |
 | `--num-trials` | `50` | Number of HPO trials (search-space samples) |
 | `--num-epochs` | `25` | Epochs per trial (also `max_t` for ASHA) |
 

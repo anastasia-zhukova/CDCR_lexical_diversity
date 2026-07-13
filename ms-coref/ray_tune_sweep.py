@@ -238,8 +238,8 @@ def run_sweep(args):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Ray Tune HPO sweep for MS Loss CDCR")
-    p.add_argument("--data-dir", type=str, default="/Workspace/Users/sergio_gonzalez3@epam.com/ms-coref/data")
-    p.add_argument("--output-dir", type=str, default="/Volumes/dmz/action_recognition/cdcr/ms_coref/sweep")
+    p.add_argument("--data-dir", type=str, default=_CFG.get("data_dir"))
+    p.add_argument("--output-dir", type=str, default=_CFG.get("output_dir"))
     p.add_argument("--num-trials", type=int, default=50)
     p.add_argument("--num-epochs", type=int, default=25)
     args, _ = p.parse_known_args()

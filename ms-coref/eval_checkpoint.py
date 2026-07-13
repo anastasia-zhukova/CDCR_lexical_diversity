@@ -25,7 +25,7 @@ CSV columns:
     n_mentions, n_gold_clusters, n_pred_clusters
 
 Usage:
-    python conll_eval.py --checkpoint /path/to/best_model.pt --split test
+    python eval_checkpoint.py --checkpoint /path/to/best_model.pt --split test
 """
 
 import argparse
@@ -267,7 +267,7 @@ def run(args):
     final_out_dir = Path(args.output_dir) / setting / args.split
 
     # Write CoNLL files to /tmp for speed, then zip and copy to final destination
-    tmp_dir = Path(tempfile.mkdtemp(prefix="conll_eval_"))
+    tmp_dir = Path(tempfile.mkdtemp(prefix="eval_checkpoint_"))
     out_dir = tmp_dir / setting / args.split
     out_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Writing CoNLL files to {tmp_dir} (will zip+copy to {final_out_dir})")

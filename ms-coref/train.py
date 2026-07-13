@@ -832,10 +832,10 @@ def train(args):
             ckpt_for_eval = ckpt_dir / "best_model.pt"
 
         if ckpt_for_eval.exists():
-            logger.info(f"\nRunning conll_eval.py on test set with {ckpt_for_eval.name} ...")
-            conll_eval_script = Path(os.getcwd()) / "conll_eval.py"
+            logger.info(f"\nRunning eval_checkpoint.py on test set with {ckpt_for_eval.name} ...")
+            eval_script = Path(os.getcwd()) / "eval_checkpoint.py"
             cmd = [
-                sys.executable, str(conll_eval_script),
+                sys.executable, str(eval_script),
                 "--checkpoint", str(ckpt_for_eval),
                 "--data-dir", args.data_dir,
                 "--output-dir", str(run_dir / "conll_output"),
@@ -848,11 +848,11 @@ def train(args):
             ]
             result = subprocess.run(cmd, capture_output=False)
             if result.returncode != 0:
-                logger.warning(f"conll_eval.py exited with code {result.returncode}")
+                logger.warning(f"eval_checkpoint.py exited with code {result.returncode}")
             else:
-                logger.info("conll_eval.py completed successfully.")
+                logger.info("eval_checkpoint.py completed successfully.")
         else:
-            logger.warning(f"No checkpoint found at {ckpt_for_eval}, skipping conll_eval.")
+            logger.warning(f"No checkpoint found at {ckpt_for_eval}, skipping eval_checkpoint.")
 
 
 # ---------------------------------------------------------------------------

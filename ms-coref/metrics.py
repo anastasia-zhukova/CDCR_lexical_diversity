@@ -3,14 +3,14 @@ Coreference resolution metrics: MUC, B³, CEAFe, LEA, pd_LEA, and CoNLL F1.
 
 This module is the single source of truth for all coreference metric
 implementations.  Both ``coref_utils.py`` (training / inference) and
-``conll_eval.py`` (CoNLL file generation + Perl-scaler cross-check) import
+``eval_checkpoint.py`` (CoNLL file generation + Perl-scaler cross-check) import
 from here rather than maintaining their own copies.
 
 Two high-level entry points are provided:
 
 * ``compute_metrics_from_clusters(pred_clusters, gold_clusters, …)``
     Takes pre-built cluster dicts (``id → set of mention indices``).
-    Used by ``conll_eval.py`` where clusters are sliced from a DataFrame.
+    Used by ``eval_checkpoint.py`` where clusters are sliced from a DataFrame.
 
 * ``compute_metrics_from_assignments(cluster_ids, gold_labels, pd_tuples)``
     Takes 1-D arrays of predicted / gold cluster assignments and builds

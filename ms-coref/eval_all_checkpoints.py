@@ -1,12 +1,12 @@
 """
 Full CoNLL Evaluation — All Checkpoints
 
-Walks RESULTS_ROOT, finds checkpoint directories, runs conll_eval.py on
+Walks RESULTS_ROOT, finds checkpoint directories, runs eval_checkpoint.py on
 all 12 CDCR datasets (test split), and writes output inside each run directory
 as <run_dir>/conll_output/.
 
 Usage:
-    python full_conll_eval.py
+    python eval_all_checkpoints.py
 """
 
 import argparse
@@ -66,12 +66,12 @@ def discover_runs(results_root: Path):
 
 
 def evaluate_runs(runs, data_dir: str, split: str, batch_size: int):
-    """Run conll_eval on each discovered run, collecting per-run metrics."""
+    """Run eval_checkpoint on each discovered run, collecting per-run metrics."""
     import pandas as pd
 
     if REPO_DIR not in sys.path:
         sys.path.insert(0, REPO_DIR)
-    import conll_eval as _ce
+    import eval_checkpoint as _ce
 
     results_summary = []
     failed_runs = []
@@ -138,7 +138,7 @@ def save_summary(results_summary, results_root: Path, split: str):
     import pandas as pd
 
     summary_df = pd.DataFrame(results_summary)
-    summary_csv = results_root / f"full_conll_eval_summary_{split}.csv"
+    summary_csv = results_root / f"eval_all_checkpoints_summary_{split}.csv"
     summary_df.to_csv(summary_csv, index=False)
     print(f"Summary written to {summary_csv}")
     return summary_df

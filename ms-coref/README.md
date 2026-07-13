@@ -54,13 +54,13 @@ python train.py \
 
 ---
 
-### `conll_eval.py` — Evaluation
+### `eval_checkpoint.py` — Evaluation
 
 Takes a trained checkpoint and evaluates it on the test (or val) split of one or more datasets. Produces CoNLL-formatted files for use with the Perl scorer and a per-subtopic metrics CSV.
 
 **Usage:**
 ```bash
-python conll_eval.py \
+python eval_checkpoint.py \
   --checkpoint /path/to/best_model.pt \
   --datasets WECEng ECBplus NP4E \
   --split test \
@@ -112,4 +112,4 @@ checkpoint: /path/to/best_model.pt
 exclude_topics: true
 ```
 
-Both `train.py` and `conll_eval.py` read `exclude_topics` from this file at startup, so changing it once applies to both scripts.
+Both `train.py` and `eval_checkpoint.py` read `exclude_topics` from this file at startup, so changing it once applies to both scripts.

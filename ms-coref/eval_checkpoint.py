@@ -44,8 +44,8 @@ from scipy.spatial.distance import pdist
 from torch.utils.data import DataLoader
 from transformers import RobertaTokenizer
 
-from coref_utils import CorefEncoder, compute_embeddings
-from metrics import compute_metrics_from_clusters
+from core.coref_utils import CorefEncoder, compute_embeddings
+from core.metrics import compute_metrics_from_clusters
 from sampler import MentionDataset
 from train import EVAL_THRESHOLD
 

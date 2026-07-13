@@ -23,7 +23,7 @@ from pathlib import Path
 from huggingface_hub import hf_hub_download
 import pandas as pd
 
-from metrics import phrasing_diversity_calc
+from core.metrics import phrasing_diversity_calc
 
 # nltk English stopwords (fixed list, avoids nltk dependency)
 STOPWORDS = {

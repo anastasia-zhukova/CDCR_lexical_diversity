@@ -13,7 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import RobertaModel
 
-from metrics import compute_metrics_from_assignments
+from .metrics import compute_metrics_from_assignments
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 """
-CoNLL file generation and metric CSV output for cross-checking with Anastasia's Perl scorer.
+CoNLL file generation and metric CSV output for cross-checking with the Perl scorer.
 
 Directory structure:
     {output_dir}/{setting}/{split}/{dataset}/{entity_type}/{subtopic_id}/
@@ -9,12 +9,11 @@ Directory structure:
   - Clustering is performed per subtopic, independently for each entity_type
   - entity_type is one of: "entities" (NAM/NOM/PRO), "events" (all other types), "mix" (all)
   - "mix" is created for every subtopic with >= 2 non-singleton mentions (all types combined)
-  - Singletons are excluded (per Anastasia's request)
+  - Singletons are excluded
   - Coref chain names are converted to integers (required by Perl scorer)
   - Each file contains exactly one document (the subtopic)
 
-Also outputs a CSV with per-subtopic metrics so Anastasia can aggregate and
-compare against her Perl scorer output.
+Also outputs a CSV with per-subtopic metrics to compare against the Perl scorer output.
 
 CSV columns:
     setting, dataset, entity_type, subtopic_id,

@@ -15,6 +15,7 @@ Alternatively from terminal:
 
 import argparse
 import logging
+import os
 from pathlib import Path
 
 import torch
@@ -23,6 +24,20 @@ import yaml
 from ray import tune, train as ray_train
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune import CLIReporter
+from ray.air.config import CheckpointConfig
+
+# Silence the slow experiment-state checkpoint warning on remote/DBFS storage.
+# The warning fires when syncing the global experiment state takes longer than
+# TUNE_WARN_SLOW_EXPERIMENT_CHECKPOINT_SYNC_THRESHOLD_S (default 30s). On DBFS
+# this is expected, so raise the threshold rather than spamming the log.
+os.environ.setdefault(
+    "TUNE_WARN_SLOW_EXPERIMENT_CHECKPOINT_SYNC_THRESHOLD_S", "600"
+)
+
+# On Databricks serverless there is no local disk — everything goes to DBFS,
+# which is slow for frequent syncs. Disable the experiment-state checkpoint
+# entirely; we don't need to restore a crashed sweep mid-run on serverless.
+os.environ.setdefault("TUNE_DISABLE_EXPERIMENT_STATE_CHECKPOINT_SYNC", "1")
 
 from core.coref_training_core import (
     MultiSimilarityLoss,
@@ -208,6 +223,22 @@ def run_sweep(args):
     trainable = tune.with_parameters(train_trial, data_dir=args.data_dir)
     trainable = tune.with_resources(trainable, {"gpu": 1})
 
+    # Keep only the best checkpoint per trial and checkpoint at most once per
+    # epoch. This drastically cuts the volume of data Ray syncs to the (slow)
+    # DBFS storage path, which is what triggers the
+    # "Saving the experiment state has already taken N seconds" warning.
+    checkpoint_config = CheckpointConfig(
+        num_to_keep=1,            # only retain the best checkpoint per trial
+        checkpoint_frequency=0,   # 0 = checkpoint at every report (once/epoch here)
+    )
+
+    # On serverless (no local disk) we point storage_path at DBFS, which is
+    # slow for syncs. Use a no-op syncer so Ray does NOT copy per-trial
+    # checkpoint directories back to the driver/storage during the run.
+    # Results are still available in-memory via the ResultGrid returned by
+    # tuner.fit(); we just skip the expensive remote sync of large tensors.
+    sync_config = tune.SyncConfig(syncer=None)
+
     tuner = tune.Tuner(
         trainable,
         param_space=search_space,
@@ -219,6 +250,11 @@ def run_sweep(args):
             name="ms_coref_sweep",
             storage_path=args.output_dir,
             progress_reporter=reporter,
+            checkpoint_config=checkpoint_config,
+            sync_config=sync_config,
+            # Reduce experiment-state sync frequency. The default syncs very
+            # often; on DBFS each sync can take many minutes with 50 trials.
+            verbose=1,
         ),
     )
 

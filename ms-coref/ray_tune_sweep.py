@@ -69,17 +69,13 @@ def _load_config():
 # ---------------------------------------------------------------------------
 _CFG = _load_config()
 
-DATASETS = _CFG.get(
-    "datasets", ["HyperCoref", "NP4E", "NewsWCL50", "NIdent", "ECBplus", "ECBplusMETAm"]
-)
-EXCLUDE_TOPICS = _CFG.get("exclude_topics", True)
-HYPERCOREF_EXCLUDE_TOPICS = set(_CFG.get("hypercoref_exclude_topics", ["Sport", "Sports"]))
-WECENG_EXCLUDE_TOPICS = set(_CFG.get("weceng_exclude_topics", [
-    "Awards", "Beauty Pageant", "Concert", "Contest", "Festival", "Solar Eclipse",
-]))
-TRAIN_MODE = _CFG.get("train_mode", "mix")
-SINGLE_TRAIN_DATASET = _CFG.get("single_train_dataset", "HyperCoref")
-EVAL_THRESHOLD = _CFG.get("eval_threshold", 0.5)
+DATASETS = _CFG["datasets"]
+EXCLUDE_TOPICS = _CFG["exclude_topics"]
+HYPERCOREF_EXCLUDE_TOPICS = set(_CFG["hypercoref_exclude_topics"])
+WECENG_EXCLUDE_TOPICS = set(_CFG["weceng_exclude_topics"])
+TRAIN_MODE = _CFG["train_mode"]
+SINGLE_TRAIN_DATASET = _CFG["single_train_dataset"]
+EVAL_THRESHOLD = _CFG["eval_threshold"]
 
 
 def train_trial(config, data_dir="data"):
@@ -257,7 +253,7 @@ def run_sweep(args):
     # checkpoint directories back to the driver/storage during the run.
     # Results are still available in-memory via the ResultGrid returned by
     # tuner.fit(); we just skip the expensive remote sync of large tensors.
-    sync_config = tune.SyncConfig(syncer=None)
+    sync_config = tune.SyncConfig()
 
     tuner = tune.Tuner(
         trainable,

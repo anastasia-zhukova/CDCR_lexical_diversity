@@ -38,6 +38,7 @@ def parse_list(val):
 # MentionDataset — wraps processed parquet, tokenizes on the fly
 # ---------------------------------------------------------------------------
 
+
 class MentionDataset(Dataset):
     """
     Dataset of coreference mentions with on-the-fly tokenization.
@@ -81,8 +82,82 @@ class MentionDataset(Dataset):
 
 
 # ---------------------------------------------------------------------------
+# PairDataset — static contrastive pairs, for contrastive-loss training
+# ---------------------------------------------------------------------------
+
+
+class PairDataset(Dataset):
+    """
+    Dataset of pre-sampled contrastive mention pairs (see pair_sampler.py).
+
+    Each item returns two tokenized mentions plus a binary coreference label,
+    for margin-based contrastive-loss training (the counterpart to
+    MentionDataset + MS Loss / PK batch sampling).
+    """
+
+    def __init__(self, mention_df, pairs_df, tokenizer, max_length=128):
+        """
+        Args:
+            mention_df: DataFrame from ucdcr_mentions_processed.parquet.
+            pairs_df: DataFrame from pair_sampler.sample_pairs_from_mentions()
+                (columns: id_mention1, id_mention2, coreference).
+            tokenizer: HuggingFace tokenizer with [E]/[/E] special tokens.
+            max_length: Max token length for the custom tokenizer.
+        """
+        self._mention_text = {
+            row["mention_id"]: (
+                row["document_context"],
+                row["mention_sentence_context"],
+            )
+            for row in mention_df[
+                ["mention_id", "document_context", "mention_sentence_context"]
+            ].to_dict("records")
+        }
+        self.pairs = list(zip(pairs_df["id_mention1"], pairs_df["id_mention2"]))
+        self.labels = pairs_df["coreference"].astype(int).tolist()
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+
+    def __len__(self):
+        return len(self.pairs)
+
+    def _tokenize(self, mention_id):
+        doc_context, mention_context = self._mention_text[mention_id]
+        result = custom_tokenize_with_special_tokens(
+            self.tokenizer,
+            doc_context=doc_context,
+            mention_context=mention_context,
+            max_length=self.max_length,
+        )
+        return {
+            "input_ids": torch.tensor(result["input_ids"], dtype=torch.long),
+            "attention_mask": torch.tensor(result["attention_mask"], dtype=torch.long),
+        }
+
+    def __getitem__(self, idx):
+        mention_id1, mention_id2 = self.pairs[idx]
+        return (
+            self._tokenize(mention_id1),
+            self._tokenize(mention_id2),
+            self.labels[idx],
+        )
+
+
+def pair_collate_fn(batch):
+    """Collate PairDataset items into stacked batch tensors for both branches."""
+    tok1, tok2, labels = zip(*batch)
+    input_ids1 = torch.stack([t["input_ids"] for t in tok1])
+    attention_mask1 = torch.stack([t["attention_mask"] for t in tok1])
+    input_ids2 = torch.stack([t["input_ids"] for t in tok2])
+    attention_mask2 = torch.stack([t["attention_mask"] for t in tok2])
+    labels = torch.tensor(labels, dtype=torch.long)
+    return input_ids1, attention_mask1, input_ids2, attention_mask2, labels
+
+
+# ---------------------------------------------------------------------------
 # Chain index — precomputed lookups for fast sampling
 # ---------------------------------------------------------------------------
+
 
 class ChainIndex:
     """
@@ -208,9 +283,7 @@ class ChainIndex:
             size = self.chain_size[cid]
             ds_count = self.dataset_chain_count[self.chain_to_dataset[cid]]
             self.static_weight[cid] = (
-                (pd_val ** self.tau)
-                * math.log(max(size, 2))
-                / math.log(max(ds_count, 2))
+                (pd_val**self.tau) * math.log(max(size, 2)) / math.log(max(ds_count, 2))
             )
 
     def get_chain_weights(self, chain_ids):
@@ -219,10 +292,12 @@ class ChainIndex:
 
         weight = static_weight * difficulty_ema^gamma
         """
-        weights = np.array([
-            self.static_weight[cid] * (self.difficulty_ema[cid] ** self.gamma)
-            for cid in chain_ids
-        ])
+        weights = np.array(
+            [
+                self.static_weight[cid] * (self.difficulty_ema[cid] ** self.gamma)
+                for cid in chain_ids
+            ]
+        )
         total = weights.sum()
         if total > 0:
             weights /= total
@@ -240,14 +315,15 @@ class ChainIndex:
         """
         for cid, loss in chain_losses.items():
             if cid in self.difficulty_ema:
-                self.difficulty_ema[cid] = (
-                    (1 - alpha) * self.difficulty_ema[cid] + alpha * loss
-                )
+                self.difficulty_ema[cid] = (1 - alpha) * self.difficulty_ema[
+                    cid
+                ] + alpha * loss
 
 
 # ---------------------------------------------------------------------------
 # Singleton pool — for filling batch remainders
 # ---------------------------------------------------------------------------
+
 
 class SingletonPool:
     """
@@ -277,15 +353,14 @@ class SingletonPool:
         if not self.indices or n <= 0:
             return []
         n = min(n, len(self.indices))
-        chosen = np.random.choice(
-            self.indices, size=n, replace=False, p=self.weights
-        )
+        chosen = np.random.choice(self.indices, size=n, replace=False, p=self.weights)
         return chosen.tolist()
 
 
 # ---------------------------------------------------------------------------
 # PKBatchSampler — the core batch sampling logic
 # ---------------------------------------------------------------------------
+
 
 class PKBatchSampler(Sampler):
     """
@@ -340,7 +415,9 @@ class PKBatchSampler(Sampler):
         self.seed = seed
 
         # Derive P from average chain size so expected batch ≈ batch_size
-        total_chain_mentions = sum(len(v) for v in chain_index.chain_to_indices.values())
+        total_chain_mentions = sum(
+            len(v) for v in chain_index.chain_to_indices.values()
+        )
         avg_chain_size = total_chain_mentions / max(len(chain_index.all_chains), 1)
         n_pk_slots = int(batch_size * (1 - singleton_frac))
         self.n_chains = max(1, round(n_pk_slots / avg_chain_size))
@@ -380,21 +457,32 @@ class PKBatchSampler(Sampler):
             # --- 1. Pick anchor subtopic ---
             # Use mean chain weight (not sum) so large subtopics don't
             # dominate purely by having more chains.
-            subtopic_weights = np.array([
-                np.mean([
-                    self.chain_index.static_weight[c]
-                    * (self.chain_index.difficulty_ema[c] ** self.chain_index.gamma)
-                    for c in chains
-                ])
-                for chains in self.chain_index.subtopic_to_chains.values()
-            ])
+            subtopic_weights = np.array(
+                [
+                    np.mean(
+                        [
+                            self.chain_index.static_weight[c]
+                            * (
+                                self.chain_index.difficulty_ema[c]
+                                ** self.chain_index.gamma
+                            )
+                            for c in chains
+                        ]
+                    )
+                    for chains in self.chain_index.subtopic_to_chains.values()
+                ]
+            )
             total = subtopic_weights.sum()
             if total > 0:
                 subtopic_weights /= total
             else:
-                subtopic_weights = np.ones(len(subtopic_weights)) / len(subtopic_weights)
+                subtopic_weights = np.ones(len(subtopic_weights)) / len(
+                    subtopic_weights
+                )
 
-            anchor_idx = np_rng.choice(len(self.chain_index.all_subtopic_keys), p=subtopic_weights)
+            anchor_idx = np_rng.choice(
+                len(self.chain_index.all_subtopic_keys), p=subtopic_weights
+            )
             anchor_key = self.chain_index.all_subtopic_keys[anchor_idx]
             anchor_ds, anchor_subtopic = anchor_key
 
@@ -420,7 +508,8 @@ class PKBatchSampler(Sampler):
             topic_key = (anchor_ds, anchor_topic)
             if topic_key in self.chain_index.topic_to_chains:
                 topic_chains = [
-                    c for c in self.chain_index.topic_to_chains[topic_key]
+                    c
+                    for c in self.chain_index.topic_to_chains[topic_key]
                     if c not in used_chains
                 ]
             else:
@@ -482,6 +571,7 @@ class PKBatchSampler(Sampler):
 # ---------------------------------------------------------------------------
 # Custom tokenizer (adapted from cl-coref for standalone use)
 # ---------------------------------------------------------------------------
+
 
 def custom_tokenize_with_special_tokens(
     tokenizer,
@@ -584,6 +674,7 @@ def custom_tokenize_with_special_tokens(
 # ---------------------------------------------------------------------------
 # Factory — build everything from the processed parquet
 # ---------------------------------------------------------------------------
+
 
 def build_dataloader(
     mention_df,

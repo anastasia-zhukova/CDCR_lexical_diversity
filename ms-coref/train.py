@@ -354,6 +354,7 @@ def train(args):
                 loss_fn,
                 scaler,
                 device,
+                micro_batch_size=args.micro_batch_size,
                 grad_clip=args.grad_clip,
                 fp16=args.fp16,
                 step_callback=_log_step,

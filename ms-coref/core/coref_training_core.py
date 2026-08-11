@@ -595,8 +595,9 @@ def run_train_epoch(training_mode, *args, **kwargs):
     Run one training epoch, dispatching to the implementation for
     `training_mode`:
       - "ms_loss": _run_ms_loss_epoch — 3-phase memory-saving MS-loss step.
-      - "contrastive": _run_contrastive_epoch — ordinary forward/backward
-        per pair batch (no chunking needed, no cross-sample online mining).
+      - "contrastive": _run_contrastive_epoch — micro-batched forward/backward
+        with gradient accumulation per pair batch (no cross-sample online
+        mining, so chunking is just for memory, not correctness).
 
     See the two implementations below for their (matching) argument lists
     and return value (both return a dict with the same keys, so callers
@@ -765,21 +766,26 @@ def _run_contrastive_epoch(
     contrastive_loss_fn,
     scaler,
     device,
+    micro_batch_size=None,
     grad_clip=1.0,
     fp16=True,
     step_callback=None,
 ):
     """
     Run one training epoch of the contrastive-loss regime: static mention
-    pairs (sampler.PairDataset), ordinary forward/backward per batch. No
-    chunked replay is needed here since there's no cross-sample online
-    mining like MS Loss requires — each pair's loss only depends on its own
-    two embeddings.
+    pairs (sampler.PairDataset). There's no cross-sample online mining like
+    MS Loss requires (each pair's loss only depends on its own two
+    embeddings), but the dataloader batch (e.g. 2048 pairs = 4096 forward
+    passes through roberta-large) still needs to be split into
+    micro-batches to bound GPU memory; gradients are accumulated across
+    micro-batches before a single optimizer step per dataloader batch.
 
     Args:
         model, dataloader, optimizer, scheduler, contrastive_loss_fn,
             scaler: standard training components for this epoch.
         device: torch device.
+        micro_batch_size: forward-pass chunk size (controls GPU memory);
+            None or <= 0 processes the whole dataloader batch at once.
         grad_clip: max grad norm; <= 0 disables clipping.
         fp16: whether to use autocast/GradScaler mixed precision.
         step_callback: optional fn(batch_idx, num_batches, loss_val) invoked
@@ -801,13 +807,21 @@ def _run_contrastive_epoch(
         input_ids2, attention_mask2 = input_ids2.to(device), attention_mask2.to(device)
         labels = labels.to(device)
 
-        optimizer.zero_grad()
-        with torch.amp.autocast("cuda", enabled=fp16):
-            embed1 = model(input_ids1, attention_mask1)
-            embed2 = model(input_ids2, attention_mask2)
-            loss = contrastive_loss_fn(embed1, embed2, labels)
+        n = input_ids1.size(0)
+        mb = micro_batch_size if micro_batch_size and micro_batch_size > 0 else n
 
-        scaler.scale(loss).backward()
+        optimizer.zero_grad()
+        loss_val = 0.0
+        for start in range(0, n, mb):
+            end = min(start + mb, n)
+            frac = (end - start) / n
+            with torch.amp.autocast("cuda", enabled=fp16):
+                embed1 = model(input_ids1[start:end], attention_mask1[start:end])
+                embed2 = model(input_ids2[start:end], attention_mask2[start:end])
+                chunk_loss = contrastive_loss_fn(embed1, embed2, labels[start:end])
+            scaler.scale(chunk_loss * frac).backward()
+            loss_val += chunk_loss.item() * frac
+
         if grad_clip > 0:
             scaler.unscale_(optimizer)
             nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
@@ -815,7 +829,6 @@ def _run_contrastive_epoch(
         scaler.update()
         scheduler.step()
 
-        loss_val = loss.item()
         if not math.isnan(loss_val):
             epoch_loss += loss_val
             epoch_steps += 1

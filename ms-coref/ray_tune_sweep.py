@@ -197,6 +197,7 @@ def _train_trial_inner(config, data_dir):
                 loss_fn,
                 scaler,
                 device,
+                micro_batch_size=mb,
                 grad_clip=grad_clip,
                 fp16=True,
             )

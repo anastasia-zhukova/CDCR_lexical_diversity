@@ -83,7 +83,7 @@ python train.py \
 | `--output-dir` | from `config.yaml` | Where checkpoints and metrics logs are saved |
 | `--num-epochs` | `25` | Number of training epochs |
 | `--batch-size` | `2048` | Total batch size across all GPUs |
-| `--micro-batch-size` | `128` | Forward pass chunk size per GPU (memory control) |
+| `--micro-batch-size` | `128` | Forward pass chunk size per GPU (memory control, both regimes) |
 | `--lr` | `2e-5` | Learning rate |
 | `--mlp-dim` | `1024` | Hidden dim of the projection MLP |
 | `--ms-alpha` | `2.0` | MS Loss α (positive weighting) — `loss_type: ms_loss` only |

@@ -31,9 +31,7 @@ from ray.air.config import CheckpointConfig
 # The warning fires when syncing the global experiment state takes longer than
 # TUNE_WARN_SLOW_EXPERIMENT_CHECKPOINT_SYNC_THRESHOLD_S (default 30s). On DBFS
 # this is expected, so raise the threshold rather than spamming the log.
-os.environ.setdefault(
-    "TUNE_WARN_SLOW_EXPERIMENT_CHECKPOINT_SYNC_THRESHOLD_S", "600"
-)
+os.environ.setdefault("TUNE_WARN_SLOW_EXPERIMENT_CHECKPOINT_SYNC_THRESHOLD_S", "600")
 
 # On Databricks serverless there is no local disk — everything goes to DBFS,
 # which is slow for frequent syncs. Disable the experiment-state checkpoint
@@ -42,6 +40,7 @@ os.environ.setdefault("TUNE_DISABLE_EXPERIMENT_STATE_CHECKPOINT_SYNC", "1")
 
 from core.coref_training_core import (
     MultiSimilarityLoss,
+    ContrastiveLoss,
     LabelEncoder,
     load_and_filter_mentions,
     build_model_and_data,
@@ -77,6 +76,11 @@ TRAIN_MODE = _CFG["train_mode"]
 SINGLE_TRAIN_DATASET = _CFG["single_train_dataset"]
 EVAL_THRESHOLD = _CFG["eval_threshold"]
 
+# Training regime — see core/coref_training_core.py. "ms_loss" (default) or
+# "contrastive". Determines both the trial's model/data wiring below and
+# which search space run_sweep() uses.
+LOSS_TYPE = _CFG.get("loss_type", "ms_loss")
+
 
 def train_trial(config, data_dir="data"):
     """
@@ -87,6 +91,7 @@ def train_trial(config, data_dir="data"):
         data_dir: path to data directory (passed via tune.with_parameters or partial).
     """
     import traceback, sys
+
     try:
         _train_trial_inner(config, data_dir)
     except Exception:
@@ -110,20 +115,25 @@ def _train_trial_inner(config, data_dir):
 
     # --- Tokenizer, dataloaders, and model ---
     val_datasets = [SINGLE_TRAIN_DATASET] if TRAIN_MODE == "single" else None
-    tokenizer, train_dataloader, chain_index, val_resources, model = build_model_and_data(
-        mention_df,
-        train_mention_df,
-        batch_size=config.get("batch_size", 2048),
-        max_length=128,
-        tau=config["tau"],
-        gamma=config.get("gamma", 0.5),
-        singleton_frac=config.get("singleton_frac", 0.20),
-        num_workers=0,
-        seed=42,
-        val_batch_size=256,
-        mlp_dim=config.get("mlp_dim", 1024),
-        device=device,
-        val_datasets=val_datasets,
+    tokenizer, train_dataloader, chain_index, val_resources, model = (
+        build_model_and_data(
+            mention_df,
+            train_mention_df,
+            training_mode=LOSS_TYPE,
+            batch_size=config.get("batch_size", 2048),
+            max_length=128,
+            tau=config.get("tau", 1.0),
+            gamma=config.get("gamma", 0.5),
+            singleton_frac=config.get("singleton_frac", 0.20),
+            num_workers=0,
+            seed=42,
+            val_batch_size=256,
+            mlp_dim=config.get("mlp_dim", 1024),
+            device=device,
+            val_datasets=val_datasets,
+            contrastive_sbert_model=config.get("contrastive_sbert_model"),
+            contrastive_k_negatives=config.get("contrastive_k_negatives"),
+        )
     )
 
     # --- Optimizer ---
@@ -135,17 +145,23 @@ def _train_trial_inner(config, data_dir):
 
     num_epochs = config.get("num_epochs", 25)
     total_steps = num_epochs * len(train_dataloader)
-    scheduler = build_cosine_schedule(optimizer, total_steps, config.get("warmup_frac", 0.05))
-
-    # --- Loss ---
-    ms_loss_fn = MultiSimilarityLoss(
-        alpha=config.get("ms_alpha", 2.0),
-        beta=config["ms_beta"],
-        lam=config["ms_lambda"],
+    scheduler = build_cosine_schedule(
+        optimizer, total_steps, config.get("warmup_frac", 0.05)
     )
 
+    # --- Loss ---
+    if LOSS_TYPE == "ms_loss":
+        loss_fn = MultiSimilarityLoss(
+            alpha=config.get("ms_alpha", 2.0),
+            beta=config["ms_beta"],
+            lam=config["ms_lambda"],
+        )
+        label_encoder = LabelEncoder()
+    else:  # contrastive
+        loss_fn = ContrastiveLoss(margin=config.get("contrastive_margin", 0.7))
+        label_encoder = None
+
     # --- Training loop ---
-    label_encoder = LabelEncoder()
     scaler = torch.amp.GradScaler("cuda", enabled=True)
     mb = config.get("micro_batch_size", 128)
     grad_clip = config.get("grad_clip", 1.0)
@@ -153,27 +169,45 @@ def _train_trial_inner(config, data_dir):
     best_score = float("-inf")
 
     for epoch in range(num_epochs):
-        epoch_stats = run_train_epoch(
-            model,
-            train_dataloader,
-            optimizer,
-            scheduler,
-            ms_loss_fn,
-            label_encoder,
-            scaler,
-            device,
-            micro_batch_size=mb,
-            grad_clip=grad_clip,
-            fp16=True,
-            is_distributed=False,
-            track_chain_losses=False,  # skip per-chain loss tracking for sweep speed
-            loss_in_fp32=True,
-        )
+        if LOSS_TYPE == "ms_loss":
+            epoch_stats = run_train_epoch(
+                LOSS_TYPE,
+                model,
+                train_dataloader,
+                optimizer,
+                scheduler,
+                loss_fn,
+                label_encoder,
+                scaler,
+                device,
+                micro_batch_size=mb,
+                grad_clip=grad_clip,
+                fp16=True,
+                is_distributed=False,
+                track_chain_losses=False,  # skip per-chain loss tracking for sweep speed
+                loss_in_fp32=True,
+            )
+        else:  # contrastive
+            epoch_stats = run_train_epoch(
+                LOSS_TYPE,
+                model,
+                train_dataloader,
+                optimizer,
+                scheduler,
+                loss_fn,
+                scaler,
+                device,
+                grad_clip=grad_clip,
+                fp16=True,
+            )
         avg_loss = epoch_stats["avg_loss"]
 
         # --- Validation ---
         eval_metrics, avg_pd_lea_f1, avg_conll_f1 = evaluate_validation(
-            model, val_resources, device, threshold=EVAL_THRESHOLD,
+            model,
+            val_resources,
+            device,
+            threshold=EVAL_THRESHOLD,
         )
 
         metrics = {
@@ -203,23 +237,36 @@ def _train_trial_inner(config, data_dir):
 def run_sweep(args):
     """Configure and launch the Ray Tune sweep."""
 
-    search_space = {
-        "lr": tune.loguniform(5e-6, 8e-5),
-        "ms_beta": tune.uniform(20.0, 80.0),
-        "ms_lambda": tune.uniform(0.3, 0.7),
-        "tau": tune.uniform(0.5, 2.0),
-        "ms_alpha": tune.uniform(1.0, 4.0),
-        "warmup_frac": tune.uniform(0.03, 0.10),
-        "weight_decay": tune.loguniform(1e-3, 0.1),
-        # Fixed for all trials:
-        "batch_size": 2048,
-        "micro_batch_size": 128,
-        "num_epochs": args.num_epochs,
-        "mlp_dim": 1024,
-        "gamma": 0.5,
-        "singleton_frac": 0.20,
-        "grad_clip": 1.0,
-    }
+    if LOSS_TYPE == "ms_loss":
+        search_space = {
+            "lr": tune.loguniform(5e-6, 8e-5),
+            "ms_beta": tune.uniform(20.0, 80.0),
+            "ms_lambda": tune.uniform(0.3, 0.7),
+            "tau": tune.uniform(0.5, 2.0),
+            "ms_alpha": tune.uniform(1.0, 4.0),
+            "warmup_frac": tune.uniform(0.03, 0.10),
+            "weight_decay": tune.loguniform(1e-3, 0.1),
+            # Fixed for all trials:
+            "batch_size": 2048,
+            "micro_batch_size": 128,
+            "num_epochs": args.num_epochs,
+            "mlp_dim": 1024,
+            "gamma": 0.5,
+            "singleton_frac": 0.20,
+            "grad_clip": 1.0,
+        }
+    else:  # contrastive — no PK sampler / MS-loss-specific knobs to tune
+        search_space = {
+            "lr": tune.loguniform(5e-6, 8e-5),
+            "contrastive_margin": tune.uniform(0.3, 0.9),
+            "warmup_frac": tune.uniform(0.03, 0.10),
+            "weight_decay": tune.loguniform(1e-3, 0.1),
+            # Fixed for all trials:
+            "batch_size": 256,
+            "num_epochs": args.num_epochs,
+            "mlp_dim": 1024,
+            "grad_clip": 1.0,
+        }
 
     scheduler = ASHAScheduler(
         metric="pd_lea_f1",
@@ -263,7 +310,7 @@ def run_sweep(args):
             num_samples=args.num_trials,
         ),
         run_config=tune.RunConfig(
-            name="ms_coref_sweep",
+            name=f"ms_coref_sweep_{LOSS_TYPE}",
             storage_path=args.output_dir,
             progress_reporter=reporter,
             checkpoint_config=checkpoint_config,

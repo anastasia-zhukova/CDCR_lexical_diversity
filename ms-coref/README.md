@@ -1,6 +1,15 @@
 # ms-coref
 
-MS Loss training and evaluation for cross-document coreference resolution (CDCR) over the [AnZhu/uCDCR](https://huggingface.co/datasets/AnZhu/uCDCR) benchmark.
+Training and evaluation for cross-document coreference resolution (CDCR) over the [AnZhu/uCDCR](https://huggingface.co/datasets/AnZhu/uCDCR) benchmark.
+
+Supports two pluggable training regimes, selected via `loss_type` in `config.yaml` (see `core/coref_training_core.py`):
+
+| `loss_type` | Loss | Batch construction |
+|---|---|---|
+| `ms_loss` (default) | `MultiSimilarityLoss` | Dynamic **PK batch sampler** (`sampler.py`) — chain-labeled batches, PD/difficulty-weighted |
+| `contrastive` | `ContrastiveLoss` (margin-based) | Static **SBERT MST + KNN pair sampler** (`pair_sampler.py`), ported from cl-coref-orig |
+
+Both regimes train the exact same `CorefEncoder` architecture and are evaluated with the same per-subtopic pd_LEA/CoNLL protocol — only the loss function and how training batches are built differ.
 
 ---
 
@@ -10,12 +19,13 @@ MS Loss training and evaluation for cross-document coreference resolution (CDCR)
 ms-coref/
 ├── config.yaml               # local config — controls almost everything (see below)
 ├── config.yaml.example       # template to copy from
-├── sampler.py                # PK batch sampler (entry-point-adjacent, no CLI)
+├── sampler.py                # ms_loss regime: PK batch sampler + PairDataset (contrastive regime's dataset)
+├── pair_sampler.py           # contrastive regime: SBERT MST-positive + KNN-hard-negative pair sampler
 ├── core/                     # shared, import-only modules — no CLI, no __main__
-│   ├── coref_training_core.py  #   MS loss, label encoder, data loading/filtering,
-│   │                             #   model+data construction, LR schedule, train-epoch
-│   │                             #   loop, and validation evaluation shared by both
-│   │                             #   train.py and ray_tune_sweep.py
+│   ├── coref_training_core.py  #   MultiSimilarityLoss + ContrastiveLoss, label encoder, data
+│   │                             #   loading/filtering, model+data construction, LR schedule,
+│   │                             #   train-epoch loop (both regimes), and validation evaluation
+│   │                             #   shared by both train.py and ray_tune_sweep.py
 │   ├── coref_utils.py           #   CorefEncoder model, embedding computation,
 │   │                             #   per-subtopic / clustering evaluation helpers
 │   └── metrics.py                #   MUC / B³ / CEAFe / CoNLL / LEA / pd_LEA metric functions
@@ -44,7 +54,8 @@ just call into it.
 
 ### `train.py` — Training
 
-Fine-tunes a RoBERTa-large encoder with **Multi-Similarity Loss** and **P batch sampling** for CDCR.
+Fine-tunes a RoBERTa-large encoder for CDCR using either training regime
+(set via `loss_type` in `config.yaml`, default `ms_loss`).
 
 **Training modes** (set via `train_mode` in `config.yaml`):
 
@@ -75,9 +86,12 @@ python train.py \
 | `--micro-batch-size` | `128` | Forward pass chunk size per GPU (memory control) |
 | `--lr` | `2e-5` | Learning rate |
 | `--mlp-dim` | `1024` | Hidden dim of the projection MLP |
-| `--ms-alpha` | `2.0` | MS Loss α (positive weighting) |
-| `--ms-beta` | `50.0` | MS Loss β (negative weighting) |
-| `--ms-lambda` | `0.5` | MS Loss margin λ |
+| `--ms-alpha` | `2.0` | MS Loss α (positive weighting) — `loss_type: ms_loss` only |
+| `--ms-beta` | `50.0` | MS Loss β (negative weighting) — `loss_type: ms_loss` only |
+| `--ms-lambda` | `0.5` | MS Loss margin λ — `loss_type: ms_loss` only |
+| `--contrastive-margin` | `0.7` | ContrastiveLoss margin (paper: 0.4 events, 0.7 entities) — `loss_type: contrastive` only |
+| `--contrastive-sbert-model` | `sentence-transformers/all-mpnet-base-v2` | SBERT model for pair sampling — `loss_type: contrastive` only |
+| `--contrastive-k-negatives` | `20` | Hard negatives per anchor mention — `loss_type: contrastive` only |
 | `--val-every` | `1` | Validate every N epochs |
 | `--save-every` | `5` | Save checkpoint every N epochs |
 | `--run-suffix` | auto-derived | Subdirectory name for this run |
@@ -92,9 +106,11 @@ python train.py \
 
 ### `ray_tune_sweep.py` — Hyperparameter sweep
 
-Runs a Ray Tune HPO sweep (ASHA early stopping) over `lr`, `ms_beta`, `ms_lambda`,
-`tau`, `ms_alpha`, `warmup_frac`, `weight_decay`. Each trial is a single-GPU
-training run reporting `pd_lea_f1` / `conll_f1` per epoch for pruning.
+Runs a Ray Tune HPO sweep (ASHA early stopping) over the search space for the
+configured `loss_type`: for `ms_loss`, `lr`, `ms_beta`, `ms_lambda`, `tau`,
+`ms_alpha`, `warmup_frac`, `weight_decay`; for `contrastive`, `lr`,
+`contrastive_margin`, `warmup_frac`, `weight_decay`. Each trial is a
+single-GPU training run reporting `pd_lea_f1` / `conll_f1` per epoch for pruning.
 
 It shares the exact same data loading, model/data construction, LR schedule,
 training-epoch loop, and validation logic as `train.py` (both import them from
@@ -188,10 +204,10 @@ Entity types: `entities` (NAM/NOM/PRO), `events`, `mix` (all non-singleton menti
 configuration.** It is local-only (gitignored, not committed) — copy it from
 `config.yaml.example` and edit the paths/values for your machine. `train.py`
 and `ray_tune_sweep.py` both read the full set of keys below (`datasets`,
-`train_mode`, `single_train_dataset`, `exclude_topics` + its topic-exclusion
-sets, `eval_threshold`) at startup and pass the resolved values into the
-shared `core/` functions as plain arguments — `core/` itself never reads this
-file. `eval_checkpoint.py` / `eval_all_checkpoints.py` read the same file for
+`train_mode`, `single_train_dataset`, `loss_type`, `exclude_topics` + its
+topic-exclusion sets, `eval_threshold`) at startup and pass the resolved
+values into the shared `core/` functions as plain arguments — `core/` itself
+never reads this file. `eval_checkpoint.py` / `eval_all_checkpoints.py` read the same file for
 their own settings (`checkpoint`, `results_root`, `data_dir`, `exclude_topics`,
 `all_datasets`, etc.), though they currently keep their own copies of the
 per-dataset topic-exclusion sets and default dataset list rather than sharing
@@ -219,6 +235,9 @@ datasets: [HyperCoref, NP4E, NewsWCL50, NIdent, ECBplus, ECBplusMETAm]
 train_mode: mix
 single_train_dataset: HyperCoref   # only used when train_mode == "single"
 
+# Training regime: "ms_loss" (default) or "contrastive" (see train.py section above)
+loss_type: ms_loss
+
 # Fixed clustering threshold for cosine-distance evaluation.
 eval_threshold: 0.5
 
@@ -235,6 +254,6 @@ mlp_dim: 1024
 all_datasets: [HyperCoref, NP4E, NewsWCL50, NIdent, ECBplus, ECBplusMETAm, WECEng, GVC, FCC, MEANTIME, CD2CR, CEREC]
 ```
 
-Changing `train_mode`, `datasets`, `exclude_topics`, or `eval_threshold` once
-in `config.yaml` applies consistently across `train.py` and `ray_tune_sweep.py`
-without editing any code.
+Changing `train_mode`, `datasets`, `loss_type`, `exclude_topics`, or
+`eval_threshold` once in `config.yaml` applies consistently across `train.py`
+and `ray_tune_sweep.py` without editing any code.

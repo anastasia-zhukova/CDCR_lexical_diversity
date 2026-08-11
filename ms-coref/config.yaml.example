@@ -40,6 +40,14 @@ train_mode: mix
 # When train_mode == "single", which dataset to train on. Ignored otherwise.
 single_train_dataset: HyperCoref
 
+# Training regime (see core/coref_training_core.py): "ms_loss" (default,
+# PK batch sampler + MultiSimilarityLoss) or "contrastive" (SBERT MST/KNN
+# pair sampler + margin-based ContrastiveLoss, ported from cl-coref-orig).
+# Per-run hyperparameters for either regime (ms-alpha/beta/lambda/tau/gamma
+# or contrastive-margin/sbert-model/k-negatives) are CLI flags on train.py,
+# not config.yaml keys.
+loss_type: ms_loss
+
 # Fixed clustering threshold for cosine-distance evaluation.
 eval_threshold: 0.5
 

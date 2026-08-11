@@ -1,5 +1,5 @@
 """
-Shared core logic for MS Loss cross-document coreference training.
+Shared core logic for cross-document coreference training.
 
 This module holds the training/eval building blocks that are common to both
 `train.py` (full DDP training run) and `ray_tune_sweep.py` (single-GPU Ray
@@ -12,14 +12,23 @@ those values are the caller's responsibility (`train.py` / `ray_tune_sweep.py`
 read config.yaml and pass the resulting values in as function arguments), so
 this "auxiliary" module stays independent of any one script's configuration.
 
+Two pluggable training regimes share the same CorefEncoder architecture and
+evaluation protocol, selected via `training_mode` in build_model_and_data()
+and run_train_epoch():
+  - "ms_loss" (default): MultiSimilarityLoss + PK batch sampler (sampler.py),
+    dynamic chain-labeled batches with online positive/negative mining.
+  - "contrastive": ContrastiveLoss + static SBERT MST/KNN pair sampler
+ (pair_sampler.py), ported from cl-coref-orig.
+
 Contents:
-  - MultiSimilarityLoss, LabelEncoder
+  - MultiSimilarityLoss, ContrastiveLoss, LabelEncoder
   - Cross-GPU embedding gathering (GatherWithGrad, gather_embeddings)
   - load_and_filter_mentions(): parquet load + dataset/topic filtering
   - build_val_resources(): per-dataset validation dataloaders/metadata
-  - build_model_and_data(): tokenizer + train/val dataloaders + model
+  - build_model_and_data(training_mode, ...): tokenizer + train/val
+    dataloaders + model for either training regime
   - build_cosine_schedule(): linear warmup + cosine decay LR schedule
-  - run_train_epoch(): the 3-phase memory-saving MS-loss training step
+  - run_train_epoch(training_mode, ...): the training step for either regime
   - evaluate_validation(): per-dataset + averaged pd_LEA/CoNLL evaluation
 """
 
@@ -32,16 +41,18 @@ import pandas as pd
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from transformers import RobertaTokenizer
 
 from .coref_utils import CorefEncoder, compute_embeddings, evaluate_per_subtopic
-from sampler import MentionDataset, build_dataloader
-
+from pair_sampler import sample_pairs_from_mentions
+from sampler import MentionDataset, PairDataset, build_dataloader, pair_collate_fn
 
 # ---------------------------------------------------------------------------
 # Multi-Similarity Loss
 # ---------------------------------------------------------------------------
+
 
 class MultiSimilarityLoss(nn.Module):
     """
@@ -132,13 +143,46 @@ class MultiSimilarityLoss(nn.Module):
         if n_valid > 0:
             loss = loss / n_valid
 
-        pair_stats = {"n_mined_pos": n_mined_pos, "n_mined_neg": n_mined_neg, "n_valid_anchors": n_valid}
+        pair_stats = {
+            "n_mined_pos": n_mined_pos,
+            "n_mined_neg": n_mined_neg,
+            "n_valid_anchors": n_valid,
+        }
         return loss, per_label_loss, pair_stats
+
+
+# ---------------------------------------------------------------------------
+# Contrastive Loss (pair-sampled regime)
+# ---------------------------------------------------------------------------
+
+
+class ContrastiveLoss(nn.Module):
+    """
+    Margin-based contrastive loss, ported from cl-coref-orig's
+    CustomContrastiveLoss. Used by the "contrastive" training regime
+    (pair_sampler.py + sampler.PairDataset), as an alternative to
+    MultiSimilarityLoss.
+
+    loss = label * distance^2 + (1 - label) * relu(margin - distance)^2
+    where distance = 1 - cosine_similarity(u, v).
+    """
+
+    def __init__(self, margin=1.0):
+        super().__init__()
+        self.margin = margin  # paper: 0.4 for events, 0.7 for entities
+
+    def forward(self, u, v, label):
+        distance = 1 - F.cosine_similarity(u, v)
+        loss = label.float() * distance.pow(2) + (1 - label).float() * F.relu(
+            self.margin - distance
+        ).pow(2)
+        return loss.mean()
 
 
 # ---------------------------------------------------------------------------
 # Cross-GPU embedding gathering
 # ---------------------------------------------------------------------------
+
 
 class GatherWithGrad(torch.autograd.Function):
     """All-gather that allows gradients to flow back through local embeddings."""
@@ -171,7 +215,9 @@ def gather_embeddings(embeddings, labels_int):
     all_embeddings = GatherWithGrad.apply(embeddings)
 
     # Labels don't need gradients — use standard all_gather
-    gathered_labels = [torch.zeros_like(labels_int) for _ in range(dist.get_world_size())]
+    gathered_labels = [
+        torch.zeros_like(labels_int) for _ in range(dist.get_world_size())
+    ]
     dist.all_gather(gathered_labels, labels_int)
     all_labels = torch.cat(gathered_labels, dim=0)
 
@@ -181,6 +227,7 @@ def gather_embeddings(embeddings, labels_int):
 # ---------------------------------------------------------------------------
 # Label encoding (string chain IDs -> integer labels for MS Loss)
 # ---------------------------------------------------------------------------
+
 
 class LabelEncoder:
     """Maps string coref_chain IDs to contiguous integer labels."""
@@ -209,6 +256,7 @@ class LabelEncoder:
 # ---------------------------------------------------------------------------
 # Data loading / filtering
 # ---------------------------------------------------------------------------
+
 
 def load_and_filter_mentions(
     data_dir,
@@ -261,26 +309,34 @@ def load_and_filter_mentions(
 
     mention_df = mention_df[mention_df["dataset"].isin(datasets)].copy()
     if log:
-        log(f"Filtered to {len(datasets)} datasets ({', '.join(datasets)}): "
-            f"{len(mention_df):,} mentions")
+        log(
+            f"Filtered to {len(datasets)} datasets ({', '.join(datasets)}): "
+            f"{len(mention_df):,} mentions"
+        )
 
     if exclude_topics and hypercoref_exclude_topics:
-        mask = (mention_df["dataset"] == "HyperCoref") & \
-               mention_df["topic"].isin(hypercoref_exclude_topics)
+        mask = (mention_df["dataset"] == "HyperCoref") & mention_df["topic"].isin(
+            hypercoref_exclude_topics
+        )
         n_excluded = mask.sum()
         mention_df = mention_df[~mask].copy()
         if log:
-            log(f"Excluded {n_excluded:,} HyperCoref mentions with topics "
-                f"{hypercoref_exclude_topics}")
+            log(
+                f"Excluded {n_excluded:,} HyperCoref mentions with topics "
+                f"{hypercoref_exclude_topics}"
+            )
 
     if exclude_topics and weceng_exclude_topics:
-        mask = (mention_df["dataset"] == "WECEng") & \
-               mention_df["topic"].isin(weceng_exclude_topics)
+        mask = (mention_df["dataset"] == "WECEng") & mention_df["topic"].isin(
+            weceng_exclude_topics
+        )
         n_excluded = mask.sum()
         mention_df = mention_df[~mask].copy()
         if log:
-            log(f"Excluded {n_excluded:,} WECEng mentions with topics "
-                f"{weceng_exclude_topics}")
+            log(
+                f"Excluded {n_excluded:,} WECEng mentions with topics "
+                f"{weceng_exclude_topics}"
+            )
 
     if train_mode == "single":
         train_datasets = [single_train_dataset]
@@ -293,7 +349,9 @@ def load_and_filter_mentions(
     train_mention_df = mention_df.copy()
     train_mask = train_mention_df["split"] == "train"
     dataset_mask = train_mention_df["dataset"].isin(train_datasets)
-    train_mention_df = train_mention_df[~train_mask | (train_mask & dataset_mask)].copy()
+    train_mention_df = train_mention_df[
+        ~train_mask | (train_mask & dataset_mask)
+    ].copy()
 
     if log:
         log(f"Train mode: {train_mode}  |  Training datasets: {train_datasets}")
@@ -307,8 +365,10 @@ def load_and_filter_mentions(
 # Validation resources
 # ---------------------------------------------------------------------------
 
-def build_val_resources(mention_df, tokenizer, max_length, val_batch_size, num_workers,
-                        datasets=None):
+
+def build_val_resources(
+    mention_df, tokenizer, max_length, val_batch_size, num_workers, datasets=None
+):
     """
     Build per-dataset validation dataloaders, PD tuples, and subtopic IDs.
 
@@ -325,9 +385,7 @@ def build_val_resources(mention_df, tokenizer, max_length, val_batch_size, num_w
         }
     """
     val_resources = {}
-    val_splits = mention_df[
-        mention_df["split"].isin(["val", "validation"])
-    ]
+    val_splits = mention_df[mention_df["split"].isin(["val", "validation"])]
     if datasets is not None:
         val_splits = val_splits[val_splits["dataset"].isin(datasets)]
 
@@ -370,15 +428,17 @@ def build_val_resources(mention_df, tokenizer, max_length, val_batch_size, num_w
 # Tokenizer, dataloaders, and model construction
 # ---------------------------------------------------------------------------
 
+
 def build_model_and_data(
     mention_df,
     train_mention_df,
     *,
+    training_mode="ms_loss",
     batch_size,
     max_length,
-    tau,
-    gamma,
-    singleton_frac,
+    tau=1.0,
+    gamma=0.5,
+    singleton_frac=0.20,
     num_workers,
     seed,
     val_batch_size,
@@ -387,6 +447,8 @@ def build_model_and_data(
     val_datasets=None,
     wrap_model_fn=None,
     log=None,
+    contrastive_sbert_model=None,
+    contrastive_k_negatives=None,
 ):
     """
     Build the tokenizer, training/validation dataloaders, and model — the
@@ -398,11 +460,14 @@ def build_model_and_data(
             validation resources.
         train_mention_df: dataframe with the train split restricted to the
             configured training datasets (see load_and_filter_mentions()).
+        training_mode: "ms_loss" (PK batch sampler, default) or
+            "contrastive" (SBERT MST/KNN pair sampler).
         batch_size: training dataloader batch size (already divided across
             GPUs by the caller if running distributed).
         max_length: tokenizer max sequence length.
         tau, gamma, singleton_frac, num_workers, seed: passed to
-            sampler.build_dataloader() for PK batch sampling.
+            sampler.build_dataloader() for PK batch sampling (ms_loss only;
+            seed/num_workers are also used to build the pair dataloader).
         val_batch_size: validation dataloader batch size.
         mlp_dim: CorefEncoder MLP hidden dimension.
         device: torch device to move the model to.
@@ -412,38 +477,81 @@ def build_model_and_data(
             after the model is moved to device (e.g. DDP wrapping in
             train.py). None = model is used as-is (single-GPU sweeps).
         log: optional callable(str) for progress logging. None = silent.
+        contrastive_sbert_model: SBERT model name for pair sampling
+            (contrastive only; falls back to pair_sampler.SBERT_MODEL).
+        contrastive_k_negatives: hard negatives per anchor mention
+            (contrastive only; falls back to pair_sampler.K_HARD_NEGATIVES).
 
     Returns:
         tokenizer, train_dataloader, chain_index, val_resources, model
+            chain_index is None for the "contrastive" regime (there is no
+            PK sampler / difficulty EMA to track).
     """
     # --- Tokenizer ---
     tokenizer = RobertaTokenizer.from_pretrained("roberta-large")
     tokenizer.add_tokens(["[E]", "[/E]"])
 
     # --- Training dataloader ---
-    train_dataloader, chain_index = build_dataloader(
-        mention_df=train_mention_df,
-        tokenizer=tokenizer,
-        batch_size=batch_size,
-        max_length=max_length,
-        tau=tau,
-        gamma=gamma,
-        singleton_frac=singleton_frac,
-        num_workers=num_workers,
-        seed=seed,
-    )
+    if training_mode == "ms_loss":
+        train_dataloader, chain_index = build_dataloader(
+            mention_df=train_mention_df,
+            tokenizer=tokenizer,
+            batch_size=batch_size,
+            max_length=max_length,
+            tau=tau,
+            gamma=gamma,
+            singleton_frac=singleton_frac,
+            num_workers=num_workers,
+            seed=seed,
+        )
+    elif training_mode == "contrastive":
+        train_split_df = train_mention_df[train_mention_df["split"] == "train"].copy()
+        pairs_df = sample_pairs_from_mentions(
+            train_split_df,
+            params={
+                "split": "train",
+                "sbert_model": contrastive_sbert_model,
+                "k_hard_negatives": contrastive_k_negatives,
+                "random_seed": seed,
+            },
+        )
+        if log:
+            pos_frac = pairs_df["coreference"].mean() if len(pairs_df) else 0.0
+            log(
+                f"Sampled {len(pairs_df):,} contrastive pairs ({pos_frac * 100:.1f}% positive)"
+            )
+        pair_dataset = PairDataset(
+            train_split_df, pairs_df, tokenizer, max_length=max_length
+        )
+        train_dataloader = DataLoader(
+            pair_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            collate_fn=pair_collate_fn,
+            num_workers=num_workers,
+        )
+        chain_index = None
+    else:
+        raise ValueError(f"Unknown training_mode: {training_mode!r}")
+
     if log:
         log(f"Training dataloader: {len(train_dataloader)} batches/epoch")
 
     # --- Validation resources ---
     val_resources = build_val_resources(
-        mention_df, tokenizer, max_length, val_batch_size, num_workers,
+        mention_df,
+        tokenizer,
+        max_length,
+        val_batch_size,
+        num_workers,
         datasets=val_datasets,
     )
     if log:
         for ds_name, res in sorted(val_resources.items()):
-            log(f"  Val {ds_name:20s}: {res['n_mentions']:>6,} mentions  "
-                f"{res['n_subtopics']:>4} subtopics")
+            log(
+                f"  Val {ds_name:20s}: {res['n_mentions']:>6,} mentions  "
+                f"{res['n_subtopics']:>4} subtopics"
+            )
 
     # --- Model ---
     model = CorefEncoder(tokenizer, mlp_hidden_dim=mlp_dim)
@@ -463,6 +571,7 @@ def build_model_and_data(
 # LR schedule
 # ---------------------------------------------------------------------------
 
+
 def build_cosine_schedule(optimizer, total_steps, warmup_frac):
     """Linear warmup followed by cosine decay over total_steps."""
     warmup_steps = int(total_steps * warmup_frac)
@@ -477,10 +586,30 @@ def build_cosine_schedule(optimizer, total_steps, warmup_frac):
 
 
 # ---------------------------------------------------------------------------
-# Training loop (shared 3-phase memory-saving MS-loss step)
+# Training loop — this is what changes across training regimes
 # ---------------------------------------------------------------------------
 
-def run_train_epoch(
+
+def run_train_epoch(training_mode, *args, **kwargs):
+    """
+    Run one training epoch, dispatching to the implementation for
+    `training_mode`:
+      - "ms_loss": _run_ms_loss_epoch — 3-phase memory-saving MS-loss step.
+      - "contrastive": _run_contrastive_epoch — ordinary forward/backward
+        per pair batch (no chunking needed, no cross-sample online mining).
+
+    See the two implementations below for their (matching) argument lists
+    and return value (both return a dict with the same keys, so callers
+    don't need to special-case the training_mode).
+    """
+    if training_mode == "ms_loss":
+        return _run_ms_loss_epoch(*args, **kwargs)
+    if training_mode == "contrastive":
+        return _run_contrastive_epoch(*args, **kwargs)
+    raise ValueError(f"Unknown training_mode: {training_mode!r}")
+
+
+def _run_ms_loss_epoch(
     model,
     dataloader,
     optimizer,
@@ -569,7 +698,9 @@ def run_train_epoch(
             all_emb_gathered, all_labels = all_emb, int_labels
 
         with torch.amp.autocast("cuda", enabled=(fp16 and not loss_in_fp32)):
-            loss, per_label_losses, pair_stats = ms_loss_fn(all_emb_gathered, all_labels)
+            loss, per_label_losses, pair_stats = ms_loss_fn(
+                all_emb_gathered, all_labels
+            )
 
         scaler.scale(loss).backward()
         emb_grad = all_emb.grad.detach().clone()
@@ -606,11 +737,15 @@ def run_train_epoch(
         if step_callback is not None:
             step_callback(batch_idx, len(dataloader), loss_val)
 
-    chain_loss_means = {
-        cid: float(np.mean(losses))
-        for cid, losses in epoch_chain_losses.items()
-        if losses
-    } if track_chain_losses else {}
+    chain_loss_means = (
+        {
+            cid: float(np.mean(losses))
+            for cid, losses in epoch_chain_losses.items()
+            if losses
+        }
+        if track_chain_losses
+        else {}
+    )
 
     return {
         "avg_loss": epoch_loss / max(epoch_steps, 1),
@@ -622,9 +757,86 @@ def run_train_epoch(
     }
 
 
+def _run_contrastive_epoch(
+    model,
+    dataloader,
+    optimizer,
+    scheduler,
+    contrastive_loss_fn,
+    scaler,
+    device,
+    grad_clip=1.0,
+    fp16=True,
+    step_callback=None,
+):
+    """
+    Run one training epoch of the contrastive-loss regime: static mention
+    pairs (sampler.PairDataset), ordinary forward/backward per batch. No
+    chunked replay is needed here since there's no cross-sample online
+    mining like MS Loss requires — each pair's loss only depends on its own
+    two embeddings.
+
+    Args:
+        model, dataloader, optimizer, scheduler, contrastive_loss_fn,
+            scaler: standard training components for this epoch.
+        device: torch device.
+        grad_clip: max grad norm; <= 0 disables clipping.
+        fp16: whether to use autocast/GradScaler mixed precision.
+        step_callback: optional fn(batch_idx, num_batches, loss_val) invoked
+            after each optimizer step (e.g. for periodic logging).
+
+    Returns:
+        dict with the same keys as _run_ms_loss_epoch's return value, so
+        callers can handle either regime uniformly. chain_loss_means is
+        always empty and mined_pos/mined_neg/valid_anchors are always 0
+        (there is no PK sampler / online mining in this regime).
+    """
+    model.train()
+    epoch_loss = 0.0
+    epoch_steps = 0
+
+    for batch_idx, batch in enumerate(dataloader):
+        input_ids1, attention_mask1, input_ids2, attention_mask2, labels = batch
+        input_ids1, attention_mask1 = input_ids1.to(device), attention_mask1.to(device)
+        input_ids2, attention_mask2 = input_ids2.to(device), attention_mask2.to(device)
+        labels = labels.to(device)
+
+        optimizer.zero_grad()
+        with torch.amp.autocast("cuda", enabled=fp16):
+            embed1 = model(input_ids1, attention_mask1)
+            embed2 = model(input_ids2, attention_mask2)
+            loss = contrastive_loss_fn(embed1, embed2, labels)
+
+        scaler.scale(loss).backward()
+        if grad_clip > 0:
+            scaler.unscale_(optimizer)
+            nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        scaler.step(optimizer)
+        scaler.update()
+        scheduler.step()
+
+        loss_val = loss.item()
+        if not math.isnan(loss_val):
+            epoch_loss += loss_val
+            epoch_steps += 1
+
+        if step_callback is not None:
+            step_callback(batch_idx, len(dataloader), loss_val)
+
+    return {
+        "avg_loss": epoch_loss / max(epoch_steps, 1),
+        "epoch_steps": epoch_steps,
+        "chain_loss_means": {},
+        "mined_pos": 0,
+        "mined_neg": 0,
+        "valid_anchors": 0,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Validation evaluation
 # ---------------------------------------------------------------------------
+
 
 def evaluate_validation(model, val_resources, device, threshold):
     """
@@ -653,12 +865,19 @@ def evaluate_validation(model, val_resources, device, threshold):
         for ds_name, res in val_resources.items():
             embs, labels = compute_embeddings(model, res["dataloader"], device)
             metrics = evaluate_per_subtopic(
-                embs, labels, res["pd_tuples"], res["subtopic_ids"],
+                embs,
+                labels,
+                res["pd_tuples"],
+                res["subtopic_ids"],
                 threshold=threshold,
             )
             eval_metrics[ds_name] = metrics
 
-    avg_pd_lea_f1 = float(np.mean([eval_metrics[ds]["pd_lea_f1"] for ds in dataset_names]))
-    avg_conll_f1 = float(np.mean([eval_metrics[ds]["conll_f1"] for ds in dataset_names]))
+    avg_pd_lea_f1 = float(
+        np.mean([eval_metrics[ds]["pd_lea_f1"] for ds in dataset_names])
+    )
+    avg_conll_f1 = float(
+        np.mean([eval_metrics[ds]["conll_f1"] for ds in dataset_names])
+    )
 
     return eval_metrics, avg_pd_lea_f1, avg_conll_f1

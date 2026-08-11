@@ -326,8 +326,8 @@ def sample_pairs_from_mentions(
     params = params or {}
     split = params.get("split", "train")
     group_by = list(params.get("group_by", ["dataset"])) or ["dataset"]
-    model_name = params.get("sbert_model", SBERT_MODEL)
-    k_neg = int(params.get("k_hard_negatives", K_HARD_NEGATIVES))
+    model_name = params.get("sbert_model") or SBERT_MODEL
+    k_neg = int(params.get("k_hard_negatives") or K_HARD_NEGATIVES)
     max_groups = params.get("max_groups")
     max_mentions_per_group = params.get("max_mentions_per_group")
     random_seed = int(params.get("random_seed", 13))

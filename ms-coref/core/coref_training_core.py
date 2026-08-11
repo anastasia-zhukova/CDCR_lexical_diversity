@@ -775,10 +775,14 @@ def _run_contrastive_epoch(
     Run one training epoch of the contrastive-loss regime: static mention
     pairs (sampler.PairDataset). There's no cross-sample online mining like
     MS Loss requires (each pair's loss only depends on its own two
-    embeddings), but the dataloader batch (e.g. 2048 pairs = 4096 forward
-    passes through roberta-large) still needs to be split into
-    micro-batches to bound GPU memory; gradients are accumulated across
-    micro-batches before a single optimizer step per dataloader batch.
+    embeddings), but mirrors _run_ms_loss_epoch's 3-phase memory-saving
+    pattern anyway: (1) no-grad chunked forward for both sides of the pair,
+    (2) loss + backward on the detached embeddings to get their gradients,
+    (3) chunked re-forward-with-grad per side, backward with the phase-2
+    gradient. This way only one micro-batch's worth of activations is ever
+    resident at a time — holding both sides' full-batch activations
+    simultaneously (as a naive chunked forward/backward would) is what
+    caused OOMs even with a moderate micro_batch_size.
 
     Args:
         model, dataloader, optimizer, scheduler, contrastive_loss_fn,
@@ -801,6 +805,17 @@ def _run_contrastive_epoch(
     epoch_loss = 0.0
     epoch_steps = 0
 
+    def _chunked_forward_no_grad(input_ids, attention_mask, mb):
+        chunks = []
+        with torch.no_grad():
+            for start in range(0, input_ids.size(0), mb):
+                end = min(start + mb, input_ids.size(0))
+                with torch.amp.autocast("cuda", enabled=fp16):
+                    chunks.append(
+                        model(input_ids[start:end], attention_mask[start:end])
+                    )
+        return torch.cat(chunks, dim=0)
+
     for batch_idx, batch in enumerate(dataloader):
         input_ids1, attention_mask1, input_ids2, attention_mask2, labels = batch
         input_ids1, attention_mask1 = input_ids1.to(device), attention_mask1.to(device)
@@ -810,17 +825,30 @@ def _run_contrastive_epoch(
         n = input_ids1.size(0)
         mb = micro_batch_size if micro_batch_size and micro_batch_size > 0 else n
 
+        # --- Phase 1: no-grad forward, one side/chunk at a time ---
+        emb1 = _chunked_forward_no_grad(input_ids1, attention_mask1, mb)
+        emb2 = _chunked_forward_no_grad(input_ids2, attention_mask2, mb)
+
+        # --- Phase 2: loss + backward on detached embeddings ---
+        emb1.requires_grad_(True)
+        emb2.requires_grad_(True)
+        with torch.amp.autocast("cuda", enabled=fp16):
+            loss = contrastive_loss_fn(emb1, emb2, labels)
         optimizer.zero_grad()
-        loss_val = 0.0
-        for start in range(0, n, mb):
-            end = min(start + mb, n)
-            frac = (end - start) / n
-            with torch.amp.autocast("cuda", enabled=fp16):
-                embed1 = model(input_ids1[start:end], attention_mask1[start:end])
-                embed2 = model(input_ids2[start:end], attention_mask2[start:end])
-                chunk_loss = contrastive_loss_fn(embed1, embed2, labels[start:end])
-            scaler.scale(chunk_loss * frac).backward()
-            loss_val += chunk_loss.item() * frac
+        scaler.scale(loss).backward()
+        emb1_grad = emb1.grad.detach().clone()
+        emb2_grad = emb2.grad.detach().clone()
+
+        # --- Phase 3: re-forward with grad, one chunk/side at a time ---
+        for input_ids, attention_mask, emb_grad in (
+            (input_ids1, attention_mask1, emb1_grad),
+            (input_ids2, attention_mask2, emb2_grad),
+        ):
+            for start in range(0, n, mb):
+                end = min(start + mb, n)
+                with torch.amp.autocast("cuda", enabled=fp16):
+                    chunk_emb = model(input_ids[start:end], attention_mask[start:end])
+                chunk_emb.backward(emb_grad[start:end])
 
         if grad_clip > 0:
             scaler.unscale_(optimizer)
@@ -829,6 +857,7 @@ def _run_contrastive_epoch(
         scaler.update()
         scheduler.step()
 
+        loss_val = loss.item()
         if not math.isnan(loss_val):
             epoch_loss += loss_val
             epoch_steps += 1

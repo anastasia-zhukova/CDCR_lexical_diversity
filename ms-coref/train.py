@@ -21,6 +21,7 @@ import argparse
 import json
 import logging
 import os
+import random
 import subprocess
 import sys
 import tempfile
@@ -105,6 +106,18 @@ EVAL_THRESHOLD = _CFG.get("eval_threshold", 0.5)
 LOSS_TYPE = _CFG.get("loss_type", "ms_loss")
 
 
+def set_seed(seed):
+    """Seed all RNGs used during setup/training (random/numpy/torch/CUDA)."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    # cudnn.benchmark picks conv algorithms based on runtime timing, which is
+    # itself a source of run-to-run nondeterminism; disable it for repeatability.
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
 def safe_torch_save(obj, path):
     """
     Save via local /tmp then copy to destination.
@@ -179,6 +192,11 @@ def train(args):
         local_rank = 0
 
     is_main = local_rank == 0
+
+    # Seed before any model/data construction so weight init, dropout, and
+    # DataLoader shuffling are reproducible across runs (and identical across
+    # ranks before DDP broadcasts rank 0's weights).
+    set_seed(args.seed)
 
     if torch.cuda.is_available():
         gpu_name = torch.cuda.get_device_name(device)
@@ -716,17 +734,22 @@ def parse_args():
     p.add_argument("--ms-lambda", type=float, default=0.5)
 
     # Contrastive loss (loss_type=contrastive, see config.yaml's loss_type).
+    # Defaults come from config.yaml when set there, else the hardcoded fallback.
     p.add_argument(
         "--contrastive-margin",
         type=float,
-        default=0.7,
+        default=cfg.get("contrastive_margin", 0.7),
         help="Margin for ContrastiveLoss (paper: 0.4 events, 0.7 entities)",
     )
-    p.add_argument("--contrastive-sbert-model", type=str, default=SBERT_MODEL)
+    p.add_argument(
+        "--contrastive-sbert-model",
+        type=str,
+        default=cfg.get("contrastive_sbert_model", SBERT_MODEL),
+    )
     p.add_argument(
         "--contrastive-k-negatives",
         type=int,
-        default=K_HARD_NEGATIVES,
+        default=cfg.get("contrastive_k_negatives", K_HARD_NEGATIVES),
         help="Hard negatives per anchor mention in pair sampling",
     )
 

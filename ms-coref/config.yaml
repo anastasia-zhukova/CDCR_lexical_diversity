@@ -43,10 +43,14 @@ single_train_dataset: ECBplus
 # Training regime (see core/coref_training_core.py): "ms_loss" (default,
 # PK batch sampler + MultiSimilarityLoss) or "contrastive" (SBERT MST/KNN
 # pair sampler + margin-based ContrastiveLoss, ported from cl-coref-orig).
-# Per-run hyperparameters for either regime (ms-alpha/beta/lambda/tau/gamma
-# or contrastive-margin/sbert-model/k-negatives) are CLI flags on train.py,
-# not config.yaml keys.
+# ms-alpha/beta/lambda/tau/gamma are CLI-only flags on train.py.
+# contrastive_margin/contrastive_sbert_model/contrastive_k_negatives below
+# are optional config.yaml keys (fall back to train.py's CLI defaults if
+# omitted); CLI flags still override whatever is set here.
 loss_type: ms_loss
+# contrastive_margin: 0.7
+# contrastive_sbert_model: sentence-transformers/all-mpnet-base-v2
+# contrastive_k_negatives: 20
 
 # Fixed clustering threshold for cosine-distance evaluation.
 eval_threshold: 0.5

@@ -160,6 +160,8 @@ def _safe_torch_save(obj, path):
 
 
 def train(args):
+    train_start_time = time.time()
+
     # --- Silence noisy Databricks / Py4J loggers ---
     for noisy in ["py4j", "py4j.java_gateway", "py4j.clientserver"]:
         logging.getLogger(noisy).setLevel(logging.ERROR)
@@ -178,8 +180,23 @@ def train(args):
 
     is_main = local_rank == 0
 
+    if torch.cuda.is_available():
+        gpu_name = torch.cuda.get_device_name(device)
+        gpu_count = torch.cuda.device_count()
+        gpu_total_mem_gb = torch.cuda.get_device_properties(device).total_memory / (
+            1024**3
+        )
+    else:
+        gpu_name = None
+        gpu_count = 0
+        gpu_total_mem_gb = None
+
     if is_main:
         logger.info(f"Device: {device}, World size: {args.world_size}")
+        if gpu_name:
+            logger.info(
+                f"GPU: {gpu_name}  (count={gpu_count}, total_mem={gpu_total_mem_gb:.1f} GB)"
+            )
 
     # --- Load data ---
     mention_df, train_mention_df, train_datasets = load_and_filter_mentions(
@@ -291,6 +308,7 @@ def train(args):
         logger.info(f"Params saved to {run_dir / 'params.json'}")
 
     # Checkpoint selection tracking
+    best_epoch = None
     if TRAIN_MODE == "single":
         best_pd_lea = 0.0
     else:
@@ -452,6 +470,7 @@ def train(args):
 
                 if sel_pd_lea > best_pd_lea:
                     best_pd_lea = sel_pd_lea
+                    best_epoch = epoch + 1
                     _safe_torch_save(
                         {
                             **ckpt_payload,
@@ -478,6 +497,7 @@ def train(args):
                 # mix / hypercoref_main: select by avg pd_LEA across all datasets
                 if avg_pd_lea_f1 > best_val_f1:
                     best_val_f1 = avg_pd_lea_f1
+                    best_epoch = epoch + 1
                     _safe_torch_save(
                         {**ckpt_payload, "best_avg_pd_lea_f1": best_val_f1},
                         ckpt_dir / "best_model.pt",
@@ -525,13 +545,54 @@ def train(args):
                 ckpt_path,
             )
 
+    total_training_time = time.time() - train_start_time
+
     if is_main:
         if TRAIN_MODE == "single":
             logger.info(
-                f"Training complete. Best pd_LEA={best_pd_lea:.4f}  (on {SINGLE_TRAIN_DATASET} val)"
+                f"Training complete. Best pd_LEA={best_pd_lea:.4f}  (on {SINGLE_TRAIN_DATASET} val, epoch {best_epoch})"
             )
         else:
-            logger.info(f"Training complete. Best avg pd_LEA F1: {best_val_f1:.4f}")
+            logger.info(
+                f"Training complete. Best avg pd_LEA F1: {best_val_f1:.4f}  (epoch {best_epoch})"
+            )
+        logger.info(
+            f"Total training time: {total_training_time / 3600:.2f}h ({total_training_time:.0f}s)"
+        )
+
+        summary = {
+            "run_suffix": args.run_suffix,
+            "loss_type": LOSS_TYPE,
+            "train_mode": TRAIN_MODE,
+            "num_epochs_configured": args.num_epochs,
+            "total_training_time_sec": round(total_training_time, 1),
+            "total_training_time_hms": time.strftime(
+                "%H:%M:%S", time.gmtime(total_training_time)
+            ),
+            "world_size": args.world_size,
+            "gpu_name": gpu_name,
+            "gpu_count": gpu_count,
+            "gpu_total_memory_gb": (
+                round(gpu_total_mem_gb, 2) if gpu_total_mem_gb else None
+            ),
+            "best_epoch": best_epoch,
+            **(
+                {
+                    "best_metric_name": "pd_lea_f1",
+                    "best_metric_dataset": SINGLE_TRAIN_DATASET,
+                    "best_metric_value": round(best_pd_lea, 4),
+                }
+                if TRAIN_MODE == "single"
+                else {
+                    "best_metric_name": "avg_pd_lea_f1",
+                    "best_metric_dataset": "avg_across_all_datasets",
+                    "best_metric_value": round(best_val_f1, 4),
+                }
+            ),
+        }
+        with open(run_dir / "summary.json", "w") as f:
+            json.dump(summary, f, indent=2)
+        logger.info(f"Summary saved to {run_dir / 'summary.json'}")
 
     if is_distributed:
         dist.destroy_process_group()
@@ -723,8 +784,7 @@ def parse_args():
             ds_tag = "_".join(sorted(DATASETS))
             args.run_suffix = f"mix_{ds_tag}"
 
-        if LOSS_TYPE != "ms_loss":
-            args.run_suffix = f"{args.run_suffix}_{LOSS_TYPE}"
+        args.run_suffix = f"{args.run_suffix}_{LOSS_TYPE}"
 
     return args
 

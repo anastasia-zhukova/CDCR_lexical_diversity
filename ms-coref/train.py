@@ -683,7 +683,7 @@ def parse_args():
     p.add_argument("--val-every", type=int, default=1, help="Validate every N epochs")
 
     # Checkpointing
-    p.add_argument("--save-every", type=int, default=5)
+    p.add_argument("--save-every", type=int, default=50)
 
     # System
     p.add_argument("--num-workers", type=int, default=0)

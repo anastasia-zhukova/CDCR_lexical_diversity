@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
-from transformers import *
+from transformers import AutoModel, RobertaModel, RobertaTokenizer
 
 
 def init_weights(m):

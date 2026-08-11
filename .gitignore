@@ -36,5 +36,6 @@ cl-coref/wandb
 cl-coref/logs
 cl-coref/predictions
 ms-coref/config.yaml
+ms-coref/data
 ms-coref/results_and_weights/
 ms-coref/results_only/

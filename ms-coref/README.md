@@ -1,192 +1,240 @@
 # ms-coref
 
-Cross-document coreference resolution (CDCR) via metric learning: a shared
-RoBERTa-large mention encoder trained to place coreferent mentions close
-together in embedding space, evaluated by agglomerative clustering + the
-standard CDCR metric suite (MUC, B³, CEAFe, LEA, pd_LEA).
+MS Loss training and evaluation for cross-document coreference resolution (CDCR) over the [AnZhu/uCDCR](https://huggingface.co/datasets/AnZhu/uCDCR) benchmark.
 
-The package supports **two pluggable training regimes** that share the same
-encoder architecture and evaluation protocol, differing only in loss function
-and how training batches are constructed:
+---
 
-| Regime | Loss | Batch construction | Origin |
-|---|---|---|---|
-| `ms_loss` (default) | `MultiSimilarityLoss` | Dynamic **PK batch sampler** — chain-labeled batches, PD/difficulty-weighted | ms-coref |
-| `contrastive` | `ContrastiveLoss` (margin-based) | Static **SBERT MST + KNN pair sampler** — precomputed hard positive/negative pairs | ported from `cl-coref-orig` |
+## Code structure
 
-Both regimes train the exact same `CorefEncoder` (RoBERTa-large + dual MLP
-projection heads), since it is architecturally identical to
-`cl-coref-orig`'s `SiameseNetwork` and both losses operate on cosine
-similarity of the resulting embeddings.
-
-## Data
-
-Trains on the **uCDCR** benchmark (`AnZhu/uCDCR` on the HuggingFace Hub), a
-unified collection of 12 cross-document coreference datasets (CD2CR, CEREC,
-ECBplus, ECBplusMETAm, FCC, GVC, HyperCoref, MEANTIME, NIdent, NP4E,
-NewsWCL50, WECEng). By default, training/evaluation uses a 6-dataset subset
-(`HyperCoref, NP4E, NewsWCL50, NIdent, ECBplus, ECBplusMETAm`, configured via
-`DATASETS` in [train.py](train.py)).
-
-## Pipeline
-
-```mermaid
-graph LR
-    A[data_preparation.py] -->|ucdcr_mentions_processed.parquet| B[train.py]
-    B -->|ms_loss| C1[sampler.py: PKBatchSampler]
-    B -->|contrastive| C2[pair_sampler.py + sampler.py: PairDataset]
-    C1 --> D[coref_training_core.py: run_train_epoch]
-    C2 --> D
-    D --> E[coref_encoder.py: CorefEncoder]
-    E --> F[checkpoints/*.pt]
-    F --> G[conll_eval.py]
-    F --> H[threshold_sweep.py]
-    F --> I[infer_news.py]
+```
+ms-coref/
+├── config.yaml               # local config — controls almost everything (see below)
+├── config.yaml.example       # template to copy from
+├── sampler.py                # PK batch sampler (entry-point-adjacent, no CLI)
+├── core/                     # shared, import-only modules — no CLI, no __main__
+│   ├── coref_training_core.py  #   MS loss, label encoder, data loading/filtering,
+│   │                             #   model+data construction, LR schedule, train-epoch
+│   │                             #   loop, and validation evaluation shared by both
+│   │                             #   train.py and ray_tune_sweep.py
+│   ├── coref_utils.py           #   CorefEncoder model, embedding computation,
+│   │                             #   per-subtopic / clustering evaluation helpers
+│   └── metrics.py                #   MUC / B³ / CEAFe / CoNLL / LEA / pd_LEA metric functions
+├── data_preparation.py       # entry point: build the processed parquet dataset
+├── train.py                  # entry point: full (DDP) training run
+├── ray_tune_sweep.py         # entry point: Ray Tune HPO sweep
+├── eval_checkpoint.py        # entry point: evaluate one checkpoint → CoNLL + metrics CSV
+├── eval_all_checkpoints.py   # entry point: run eval_checkpoint.py over every saved run
+└── results_summary.py        # entry point: aggregate result CSVs into summary tables
 ```
 
-1. **[data_preparation.py](data_preparation.py)** downloads all uCDCR datasets,
-   builds `mention_sentence_context` (mention sentence with `[E]`/`[/E]`
-   markers) and `document_context` (surrounding sentences), computes phrasing
-   diversity (PD) components, and writes
-   `data/ucdcr_mentions_processed.parquet` (+ a chain-level summary table).
-2. **[train.py](train.py)** loads that parquet, builds the model/data/loss for
-   the selected `--loss-type`, trains for N epochs with periodic per-subtopic
-   validation across all evaluation datasets, and checkpoints the best model.
-   After training, it shells out to `conll_eval.py` on the test split.
-3. **[conll_eval.py](conll_eval.py)**, **[threshold_sweep.py](threshold_sweep.py)**,
-   **[infer_news.py](infer_news.py)** run further evaluation/analysis from a
-   saved checkpoint (see below).
+**`core/` holds only shared building blocks.** Nothing in `core/` has a CLI or
+reads `config.yaml` itself — it takes everything it needs as plain function
+arguments. This keeps it a true "auxiliary" layer: any script can import from
+it without inheriting another script's configuration or CLI concerns. The
+five other top-level scripts are the actual entry points; `train.py` and
+`ray_tune_sweep.py` in particular used to duplicate a large amount of setup
+logic (loss, encoder, data loading, model/optimizer/scheduler construction,
+training-epoch loop, validation) — all of that now lives once in
+`core/coref_training_core.py` and `core/coref_utils.py`, and both scripts
+just call into it.
 
-## Module reference
+---
 
-### Shared (used by every training regime)
+## Scripts
 
-- **[metrics.py](metrics.py)** — coreference scoring primitives, fully
-  model-agnostic: `f1`, `compute_muc`, `compute_b_cubed`, `compute_ceafe`,
-  `compute_lea`. Pure functions over cluster-assignment sets; reused by both
-  training regimes and by `conll_eval.py`.
-- **[coref_encoder.py](coref_encoder.py)** — the shared architecture and
-  evaluation layer:
-  - `CorefEncoder`: RoBERTa-large + dual MLP heads (CLS projection + mention
-    span projection), concatenated and L2-normalized into a 2048-dim
-    embedding. Identical design to `cl-coref-orig`'s `SiameseNetwork`.
-  - `compute_embeddings`: batch-encode a dataloader into `(N, D)` embeddings.
-  - `compute_all_metrics`: cluster assignments + gold labels →
-    MUC/B³/CEAFe/LEA/pd_LEA dict (built on `metrics.py`).
-  - `evaluate_clustering` / `evaluate_per_subtopic`: agglomerative clustering
-    (cosine distance) + `compute_all_metrics`, either over the whole dataset
-    or independently per subtopic (the standard CDCR evaluation protocol).
-- **[coref_utils.py](coref_utils.py)** — backward-compatible re-export shim
-  for the above (kept so existing imports in `conll_eval.py`,
-  `threshold_sweep.py`, `infer_news.py` keep working unchanged).
-- **[sampler.py](sampler.py)** — dataset/tokenization utilities for both
-  regimes:
-  - `custom_tokenize_with_special_tokens`: truncates doc/mention context to
-    `max_length` while always preserving the `[E]`/`[/E]` markers.
-  - `MentionDataset` + `PKBatchSampler` + `ChainIndex` + `SingletonPool` +
-    `build_dataloader`: the **`ms_loss` regime's** dynamic batch sampler (see
-    below).
-  - `PairDataset` + `pair_collate_fn`: the **`contrastive` regime's** static
-    pair dataset, consuming pairs produced by `pair_sampler.py`.
-- **[pair_sampler.py](pair_sampler.py)** — the **`contrastive` regime's**
-  pair-sampling algorithm (ported from `cl-coref-orig`, Hsu & Horwood,
-  NAACL 2022): builds a minimum spanning tree per coreference chain (using
-  SBERT sentence-similarity as edge weight) to pick *hard* positive pairs,
-  then mines the K hardest same-subtopic non-coreferent partners for each
-  positive-pair mention as negatives. Entry point:
-  `sample_pairs_from_mentions(mention_df, params)`.
+### `train.py` — Training
 
-### Training core — the pluggable piece
+Fine-tunes a RoBERTa-large encoder with **Multi-Similarity Loss** and **P batch sampling** for CDCR.
 
-- **[coref_training_core.py](coref_training_core.py)** is where the two
-  regimes diverge. This is the extension point for adding a third regime.
-  - `MultiSimilarityLoss` — Wang et al. (CVPR 2019); online positive/negative
-    mining within a batch. Used by `ms_loss`.
-  - `ContrastiveLoss` — margin-based `label * d² + (1-label) * relu(margin - d)²`
-    on cosine distance `d`. Ported from `cl-coref-orig`'s
-    `CustomContrastiveLoss`. Used by `contrastive`.
-  - `GatherWithGrad` / `gather_embeddings` / `LabelEncoder` — cross-GPU
-    embedding gathering and string→int chain-label encoding, needed only by
-    the `ms_loss` regime (MS Loss mines pairs across the whole batch/across
-    GPUs; contrastive pairs are already fixed per-sample).
-  - `load_and_filter_mentions(...)` — shared data loading: reads the
-    processed parquet, filters to the experiment's datasets, optionally drops
-    HyperCoref sport topics, and builds the train-only mention table for the
-    configured `TRAIN_MODE` (`single` / `hypercoref_main` / `mix`).
-  - `build_model_and_data(training_mode, ...)` — builds the (always shared)
-    `CorefEncoder` plus the dataloader and loss for `training_mode`:
-    - `ms_loss`: `sampler.build_dataloader` (PK sampler) + `MultiSimilarityLoss`.
-    - `contrastive`: `pair_sampler.sample_pairs_from_mentions` +
-      `sampler.PairDataset` + `ContrastiveLoss`.
-  - `run_train_epoch(training_mode, ...)` — runs one training epoch,
-    branching to `_run_ms_loss_epoch` (memory-efficient 3-phase chunked
-    forward/backward, since MS Loss needs the whole batch's embeddings for
-    online mining but activations for the whole batch don't fit in memory) or
-    `_run_contrastive_epoch` (ordinary forward/backward per pair batch, no
-    chunking needed since there's no cross-sample mining).
-- **[train.py](train.py)** — CLI entry point and orchestration only:
-  argument parsing, DDP setup, calling `load_and_filter_mentions` /
-  `build_model_and_data` / `run_train_epoch`, per-epoch validation
-  (`evaluate_per_subtopic` across all configured datasets), checkpoint
-  selection/saving, and kicking off `conll_eval.py` on the test split at the
-  end.
+**Training modes** (set via `train_mode` in `config.yaml`):
 
-### Evaluation / analysis (from a saved checkpoint)
+| Mode | Train on | Evaluate on |
+|---|---|---|
+| `single` | One dataset (`single_train_dataset`) | That dataset's val split |
+| `hypercoref_main` | HyperCoref | All configured `datasets` |
+| `mix` | All configured `datasets` combined | All configured `datasets` |
 
-- **[conll_eval.py](conll_eval.py)** — per-subtopic, per-entity-type
-  (`entities` / `events` / `mix`) CoNLL file + metrics CSV export, for
-  cross-checking against an external Perl scorer.
-- **[threshold_sweep.py](threshold_sweep.py)** — sweeps the clustering cosine
-  distance threshold (0.1–0.9) across all validation datasets and reports
-  pd_LEA F1 per threshold.
-- **[infer_news.py](infer_news.py)** — NewsWCL50-specific deep-dive: threshold
-  sweep + error analysis (per-topic, per-mention-type, per-NER-type,
-  split/merge chain errors, worst-fragmented chains).
-- **[results_analysis.md](results_analysis.md)** — write-up of experimental
-  runs and per-dataset results for the `ms_loss` regime.
-- **[01_uCDCR_exploration.ipynb](01_uCDCR_exploration.ipynb)** — exploratory
-  notebook over the raw uCDCR data.
-
-## Usage
-
+**Usage:**
 ```bash
-# 1. Build the processed parquet (once)
-python data_preparation.py
-
-# 2. Train with the default MS Loss + PK sampler regime
-python train.py --loss-type ms_loss
-
-# 2b. Or train with the contrastive loss + pair sampler regime
-python train.py --loss-type contrastive --contrastive-margin 0.7
-
-# 3. Evaluate a checkpoint
-python conll_eval.py --checkpoint <run_dir>/checkpoints/best_model.pt --split test
-python threshold_sweep.py --checkpoint <run_dir>/checkpoints/best_model.pt
-python infer_news.py --checkpoint <run_dir>/checkpoints/best_model.pt
+python train.py \
+  --data-dir data/ \
+  --output-dir /path/to/output/ \
+  --num-epochs 25 \
+  --batch-size 2048 \
+  --lr 2e-5
 ```
 
-Key CLI flags (see `train.py --help` for the full list):
+**Key arguments:**
 
-- `--loss-type {ms_loss,contrastive}` — selects the training regime (default: `ms_loss`).
-- `--tau`, `--gamma`, `--singleton-frac`, `--difficulty-alpha` — PK sampler knobs (`ms_loss` only).
-- `--ms-alpha`, `--ms-beta`, `--ms-lambda` — `MultiSimilarityLoss` hyperparameters (`ms_loss` only).
-- `--contrastive-margin`, `--contrastive-sbert-model`, `--contrastive-k-negatives` — `contrastive` regime knobs.
-- `--batch-size`, `--micro-batch-size`, `--num-epochs`, `--lr` — general training config.
+| Argument | Default | Description |
+|---|---|---|
+| `--data-dir` | `data/` | Directory containing `ucdcr_mentions_processed.parquet` |
+| `--output-dir` | from `config.yaml` | Where checkpoints and metrics logs are saved |
+| `--num-epochs` | `25` | Number of training epochs |
+| `--batch-size` | `2048` | Total batch size across all GPUs |
+| `--micro-batch-size` | `128` | Forward pass chunk size per GPU (memory control) |
+| `--lr` | `2e-5` | Learning rate |
+| `--mlp-dim` | `1024` | Hidden dim of the projection MLP |
+| `--ms-alpha` | `2.0` | MS Loss α (positive weighting) |
+| `--ms-beta` | `50.0` | MS Loss β (negative weighting) |
+| `--ms-lambda` | `0.5` | MS Loss margin λ |
+| `--val-every` | `1` | Validate every N epochs |
+| `--save-every` | `5` | Save checkpoint every N epochs |
+| `--run-suffix` | auto-derived | Subdirectory name for this run |
+| `--world-size` | `1` | Number of GPUs (auto-detected with `torchrun`) |
 
-`TRAIN_MODE` (`single` / `hypercoref_main` / `mix`), `DATASETS`, and
-`HYPERCOREF_EXCLUDE_TOPICS` are configured as constants at the top of
-`train.py` rather than CLI flags, since they define the experiment rather
-than a single run's hyperparameters.
+**Outputs** (under `--output-dir/<run-suffix>/`):
+- `checkpoints/best_model.pt` — best checkpoint by avg pd_LEA F1
+- `checkpoints/epoch_<N>.pt` — periodic checkpoints
+- `metrics_log.jsonl` — per-epoch metrics for all validation datasets
 
-## Adding a third training regime
+---
 
-1. Add a loss class to `coref_training_core.py`.
-2. Add a branch to `build_model_and_data()` that builds the appropriate
-   dataloader (reuse `CorefEncoder` — do not add a new model class unless the
-   architecture genuinely needs to change).
-3. Add a `_run_<regime>_epoch` function and wire it into `run_train_epoch()`.
-4. Add the new choice to `train.py`'s `--loss-type` argument.
+### `ray_tune_sweep.py` — Hyperparameter sweep
 
-Everything else (data loading, validation, checkpointing, `conll_eval.py`,
-`threshold_sweep.py`) works unchanged, since they only depend on the shared
-`CorefEncoder` + `coref_encoder.py` evaluation functions.
+Runs a Ray Tune HPO sweep (ASHA early stopping) over `lr`, `ms_beta`, `ms_lambda`,
+`tau`, `ms_alpha`, `warmup_frac`, `weight_decay`. Each trial is a single-GPU
+training run reporting `pd_lea_f1` / `conll_f1` per epoch for pruning.
+
+It shares the exact same data loading, model/data construction, LR schedule,
+training-epoch loop, and validation logic as `train.py` (both import them from
+`core/coref_training_core.py`) — the sweep script itself only wires that shared
+logic into a Ray Tune trial and search space, and reads `datasets`, `train_mode`,
+`exclude_topics`, etc. from `config.yaml` just like `train.py` does.
+
+**Usage:**
+```bash
+python ray_tune_sweep.py \
+  --data-dir data/ \
+  --output-dir /path/to/sweep/output/ \
+  --num-trials 50 \
+  --num-epochs 25
+```
+
+**Key arguments:**
+
+| Argument | Default | Description |
+|---|---|---|
+| `--data-dir` | from `config.yaml` (`data_dir`) | Directory containing `ucdcr_mentions_processed.parquet` |
+| `--output-dir` | from `config.yaml` (`output_dir`) | Ray Tune's `storage_path` for trial results |
+| `--num-trials` | `50` | Number of HPO trials (search-space samples) |
+| `--num-epochs` | `25` | Epochs per trial (also `max_t` for ASHA) |
+
+**Output:** Ray Tune's own trial directories under `--output-dir`, plus a
+best-trial summary (config + metrics) printed at the end of the run.
+
+---
+
+### `eval_checkpoint.py` — Evaluation
+
+Takes a trained checkpoint and evaluates it on the test (or val) split of one or more datasets. Produces CoNLL-formatted files for use with the Perl scorer and a per-subtopic metrics CSV.
+
+**Usage:**
+```bash
+python eval_checkpoint.py \
+  --checkpoint /path/to/best_model.pt \
+  --datasets WECEng ECBplus NP4E \
+  --split test \
+  --data-dir data/ \
+  --output-dir conll_output/
+```
+
+**Key arguments:**
+
+| Argument | Default | Description |
+|---|---|---|
+| `--checkpoint` | from `config.yaml` | Path to `.pt` model weights |
+| `--datasets` | all 6 datasets | Space-separated list of datasets to evaluate |
+| `--split` | `test` | `val` or `test` |
+| `--data-dir` | `data/` | Directory containing `ucdcr_mentions_processed.parquet` |
+| `--output-dir` | `conll_output/` | Root directory for output files |
+| `--setting` | hardcoded `SETTING` | Experiment name used as a subdirectory label |
+| `--max-length` | `128` | Token sequence length |
+| `--mlp-dim` | `1024` | Must match the value used during training |
+| `--batch-size` | `256` | Inference batch size |
+
+**Output directory structure:**
+```
+{output_dir}/{setting}/{split}/{dataset}/{entity_type}/{subtopic_id}/
+    key.conll       — gold clusters
+    response.conll  — predicted clusters
+metrics.csv         — per-subtopic MUC / B³ / CEAFe / CoNLL / LEA scores
+```
+
+Entity types: `entities` (NAM/NOM/PRO), `events`, `mix` (all non-singleton mentions).
+
+**Metrics reported per subtopic:**
+`MUC`, `B³`, `CEAFe`, `CoNLL F1` (avg of the three), `LEA`, `pd_LEA`
+
+---
+
+### Other entry points
+
+- **`data_preparation.py`** — downloads uCDCR and builds
+  `ucdcr_mentions_processed.parquet` (mention/document text context + phrasing
+  diversity fields) consumed by `train.py`, `ray_tune_sweep.py`, and
+  `eval_checkpoint.py`.
+- **`eval_all_checkpoints.py`** — walks `results_root` (from `config.yaml`),
+  finds every saved run, and invokes `eval_checkpoint.py` on each one across
+  all 12 CDCR datasets (test split).
+- **`results_summary.py`** — aggregates the per-run metrics CSVs produced by
+  `eval_checkpoint.py` into CoNLL F1 / LEA F1 summary tables (models × datasets).
+
+---
+
+## Configuration — `config.yaml`
+
+**`config.yaml` is the single source of truth for this project's experiment
+configuration.** It is local-only (gitignored, not committed) — copy it from
+`config.yaml.example` and edit the paths/values for your machine. `train.py`
+and `ray_tune_sweep.py` both read the full set of keys below (`datasets`,
+`train_mode`, `single_train_dataset`, `exclude_topics` + its topic-exclusion
+sets, `eval_threshold`) at startup and pass the resolved values into the
+shared `core/` functions as plain arguments — `core/` itself never reads this
+file. `eval_checkpoint.py` / `eval_all_checkpoints.py` read the same file for
+their own settings (`checkpoint`, `results_root`, `data_dir`, `exclude_topics`,
+`all_datasets`, etc.), though they currently keep their own copies of the
+per-dataset topic-exclusion sets and default dataset list rather than sharing
+`datasets`/`hypercoref_exclude_topics`/`weceng_exclude_topics` with `train.py`.
+
+```yaml
+# Paths
+output_dir: /path/to/training/output
+checkpoint: /path/to/best_model.pt
+
+# Topic exclusion: when true, filters out noisy topics per dataset before
+# training and evaluation. Applies to HyperCoref (Sport/Sports) and WECEng
+# (Awards, Beauty Pageant, Concert, Contest, Festival, Solar Eclipse).
+# Set to false to run without any topic exclusion.
+exclude_topics: true
+
+# Per-dataset topic exclusion sets (only applied when exclude_topics: true).
+hypercoref_exclude_topics: [Sport, Sports]
+weceng_exclude_topics: [Awards, Beauty Pageant, Concert, Contest, Festival, Solar Eclipse]
+
+# Subset of datasets to use for training/validation (from uCDCR's 12).
+datasets: [HyperCoref, NP4E, NewsWCL50, NIdent, ECBplus, ECBplusMETAm]
+
+# Training mode: "single", "hypercoref_main", "mix" (see train.py section above)
+train_mode: mix
+single_train_dataset: HyperCoref   # only used when train_mode == "single"
+
+# Fixed clustering threshold for cosine-distance evaluation.
+eval_threshold: 0.5
+
+# Full CoNLL evaluation configuration (used by eval_checkpoint.py / eval_all_checkpoints.py)
+results_root: /path/to/results_and_weights
+data_dir: /path/to/data
+repo_dir: /path/to/ms-coref
+split: test
+batch_size: 256
+max_length: 128
+mlp_dim: 1024
+
+# All 12 CDCR datasets for full CoNLL evaluation
+all_datasets: [HyperCoref, NP4E, NewsWCL50, NIdent, ECBplus, ECBplusMETAm, WECEng, GVC, FCC, MEANTIME, CD2CR, CEREC]
+```
+
+Changing `train_mode`, `datasets`, `exclude_topics`, or `eval_threshold` once
+in `config.yaml` applies consistently across `train.py` and `ray_tune_sweep.py`
+without editing any code.

@@ -1,10 +1,5 @@
 """
-Shared mention encoder architecture + embedding computation + clustering evaluation.
-
-Used by every training regime (MS Loss / PK sampler, contrastive loss / pair
-sampler, ...) — the encoder tower and evaluation protocol do not change across
-loss functions, only how batches/pairs are sampled and how the loss is computed
-(see coref_training_core.py).
+Shared model and evaluation utilities used by both train.py and infer_news.py.
 
 Keeping these here avoids circular imports when infer_news.py is run in a
 Databricks session that already has train.py partially initialized.
@@ -18,13 +13,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import RobertaModel
 
-from data_preparation import phrasing_diversity_calc
-from metrics import compute_b_cubed, compute_ceafe, compute_lea, compute_muc, f1
+from .metrics import compute_metrics_from_assignments
+
 
 # ---------------------------------------------------------------------------
 # Model
 # ---------------------------------------------------------------------------
-
 
 class CorefEncoder(nn.Module):
     """
@@ -33,11 +27,6 @@ class CorefEncoder(nn.Module):
     Produces a 2048-dim embedding per mention by concatenating:
       - CLS token embedding projected through MLP (1024-dim)
       - Mention span embedding (sum of [E]...[/E] tokens) projected through MLP (1024-dim)
-
-    Architecturally identical to cl-coref-orig's SiameseNetwork (same RoBERTa +
-    dual-MLP-projection + concat design) — reused unchanged for both MS Loss
-    and contrastive-loss training, since both losses operate on cosine
-    similarity and are invariant to the final L2 normalization here.
     """
 
     def __init__(self, tokenizer, mlp_hidden_dim=1024):
@@ -69,9 +58,7 @@ class CorefEncoder(nn.Module):
         e_start_idx = input_ids.eq(self.e_start_id).nonzero(as_tuple=True)
         e_end_idx = input_ids.eq(self.e_end_id).nonzero(as_tuple=True)
 
-        outputs = self.language_model(
-            input_ids=input_ids, attention_mask=attention_mask
-        )
+        outputs = self.language_model(input_ids=input_ids, attention_mask=attention_mask)
         hidden = outputs.last_hidden_state  # (B, L, H)
 
         cls_embed = hidden[:, 0, :]
@@ -92,7 +79,6 @@ class CorefEncoder(nn.Module):
 # ---------------------------------------------------------------------------
 # Embedding computation
 # ---------------------------------------------------------------------------
-
 
 @torch.no_grad()
 def compute_embeddings(model, dataloader, device):
@@ -121,91 +107,28 @@ def compute_embeddings(model, dataloader, device):
 # Clustering evaluation (MUC, B-CUBED, CEAFe, LEA, pd_LEA)
 # ---------------------------------------------------------------------------
 
+# Public dict keys used throughout this module (and its callers) have always
+# used the "_precision"/"_recall" suffix, while metrics.py uses the shorter
+# "_p"/"_r" suffix. Map between the two so existing call sites don't need to
+# change.
+_P_R_KEY_MAP = {
+    "muc_p": "muc_precision", "muc_r": "muc_recall",
+    "b3_p": "b3_precision", "b3_r": "b3_recall",
+    "ceafe_p": "ceafe_precision", "ceafe_r": "ceafe_recall",
+    "lea_p": "lea_precision", "lea_r": "lea_recall",
+    "pd_lea_p": "pd_lea_precision", "pd_lea_r": "pd_lea_recall",
+}
 
-def compute_all_metrics(cluster_ids, gold_labels, pd_tuples):
-    """Compute all coreference metrics from cluster assignments."""
-    pred_clusters = defaultdict(set)
-    gold_clusters = defaultdict(set)
-    for i, (pred_id, gold_id) in enumerate(zip(cluster_ids, gold_labels)):
-        pred_clusters[pred_id].add(i)
-        gold_clusters[gold_id].add(i)
 
-    pred_list = list(pred_clusters.values())
-    gold_list = list(gold_clusters.values())
+def _compute_all_metrics(cluster_ids, gold_labels, pd_tuples):
+    """Compute all coreference metrics from cluster assignments.
 
-    mention_to_gold = {
-        m: mentions for mentions in gold_clusters.values() for m in mentions
-    }
-    mention_to_pred = {
-        m: mentions for mentions in pred_clusters.values() for m in mentions
-    }
-
-    # --- MUC ---
-    muc_p_num, muc_p_den = compute_muc(pred_list, mention_to_gold)
-    muc_r_num, muc_r_den = compute_muc(gold_list, mention_to_pred)
-    muc_p = muc_p_num / muc_p_den if muc_p_den > 0 else 0
-    muc_r = muc_r_num / muc_r_den if muc_r_den > 0 else 0
-    muc_f1 = f1(muc_p, muc_r)
-
-    # --- B-CUBED ---
-    b3_p_num, b3_p_den = compute_b_cubed(pred_list, mention_to_gold)
-    b3_r_num, b3_r_den = compute_b_cubed(gold_list, mention_to_pred)
-    b3_p = b3_p_num / b3_p_den if b3_p_den > 0 else 0
-    b3_r = b3_r_num / b3_r_den if b3_r_den > 0 else 0
-    b3_f1 = f1(b3_p, b3_r)
-
-    # --- CEAFe ---
-    ceafe_p_num, ceafe_p_den, ceafe_r_num, ceafe_r_den = compute_ceafe(
-        pred_list, gold_list
-    )
-    ceafe_p = ceafe_p_num / ceafe_p_den if ceafe_p_den > 0 else 0
-    ceafe_r = ceafe_r_num / ceafe_r_den if ceafe_r_den > 0 else 0
-    ceafe_f1 = f1(ceafe_p, ceafe_r)
-
-    conll_f1 = (muc_f1 + b3_f1 + ceafe_f1) / 3.0
-
-    # --- LEA ---
-    lea_r_num, lea_r_den = compute_lea(gold_list, mention_to_pred, len)
-    lea_p_num, lea_p_den = compute_lea(pred_list, mention_to_gold, len)
-    lea_r = lea_r_num / lea_r_den if lea_r_den > 0 else 0
-    lea_p = lea_p_num / lea_p_den if lea_p_den > 0 else 0
-    lea_f1 = f1(lea_p, lea_r)
-
-    # --- pd_LEA ---
-    def pd_weight(cluster):
-        if len(cluster) == 1:
-            return 0.0
-        mentions = [pd_tuples[i] for i in cluster if pd_tuples[i][2] is not None]
-        if len(mentions) < 2:
-            return 0.0
-        return phrasing_diversity_calc(mentions)
-
-    pd_r_num, pd_r_den = compute_lea(gold_list, mention_to_pred, pd_weight)
-    pd_p_num, pd_p_den = compute_lea(pred_list, mention_to_gold, pd_weight)
-    pd_lea_r = pd_r_num / pd_r_den if pd_r_den > 0 else 0
-    pd_lea_p = pd_p_num / pd_p_den if pd_p_den > 0 else 0
-    pd_lea_f1 = f1(pd_lea_p, pd_lea_r)
-
-    return {
-        "muc_precision": muc_p,
-        "muc_recall": muc_r,
-        "muc_f1": muc_f1,
-        "b3_precision": b3_p,
-        "b3_recall": b3_r,
-        "b3_f1": b3_f1,
-        "ceafe_precision": ceafe_p,
-        "ceafe_recall": ceafe_r,
-        "ceafe_f1": ceafe_f1,
-        "conll_f1": conll_f1,
-        "lea_precision": lea_p,
-        "lea_recall": lea_r,
-        "lea_f1": lea_f1,
-        "pd_lea_precision": pd_lea_p,
-        "pd_lea_recall": pd_lea_r,
-        "pd_lea_f1": pd_lea_f1,
-        "n_gold_clusters": len(gold_list),
-        "n_pred_clusters": len(pred_list),
-    }
+    Thin wrapper around :func:`metrics.compute_metrics_from_assignments`
+    that renames the ``*_p``/``*_r`` keys to the ``*_precision``/``*_recall``
+    keys expected by this module's existing callers.
+    """
+    result = compute_metrics_from_assignments(cluster_ids, gold_labels, pd_tuples=pd_tuples)
+    return {_P_R_KEY_MAP.get(k, k): v for k, v in result.items()}
 
 
 def evaluate_clustering(embeddings, gold_labels, pd_tuples, threshold=0.5):
@@ -230,12 +153,11 @@ def evaluate_clustering(embeddings, gold_labels, pd_tuples, threshold=0.5):
     Z = linkage(distances, method="average")
     cluster_ids = fcluster(Z, t=threshold, criterion="distance")
 
-    return compute_all_metrics(cluster_ids, gold_labels, pd_tuples)
+    return _compute_all_metrics(cluster_ids, gold_labels, pd_tuples)
 
 
-def evaluate_per_subtopic(
-    embeddings, gold_labels, pd_tuples, subtopic_ids, threshold=0.5
-):
+def evaluate_per_subtopic(embeddings, gold_labels, pd_tuples, subtopic_ids,
+                          threshold=0.5):
     """
     Per-subtopic agglomerative clustering + coreference evaluation.
 
@@ -284,4 +206,4 @@ def evaluate_per_subtopic(
             cluster_ids[global_i] = sub_clusters[local_i] + next_cluster
         next_cluster += sub_clusters.max() + 1
 
-    return compute_all_metrics(cluster_ids, gold_labels, pd_tuples)
+    return _compute_all_metrics(cluster_ids, gold_labels, pd_tuples)

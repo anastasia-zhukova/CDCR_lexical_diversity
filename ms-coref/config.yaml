@@ -55,6 +55,9 @@ loss_type: ms_loss
 # Fixed clustering threshold for cosine-distance evaluation.
 eval_threshold: 0.5
 
+# Clustering granularity for evaluation: "subtopic" (default) or "topic".
+eval_level: subtopic
+
 # Full CoNLL evaluation configuration
 results_root: ./results_and_weights
 data_dir: ./data

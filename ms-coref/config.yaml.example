@@ -55,6 +55,14 @@ loss_type: ms_loss
 # Fixed clustering threshold for cosine-distance evaluation.
 eval_threshold: 0.5
 
+# Clustering granularity for evaluation: "subtopic" (default, matches the
+# standard CDCR protocol — clusters mentions within each subtopic
+# independently) or "topic" (merges all subtopics under a topic into one
+# clustering pass — a larger, harder problem; metrics are not comparable
+# across levels). Used by train.py/ray_tune_sweep.py (validation) and
+# eval_checkpoint.py (final CoNLL eval, overridable via --eval-level).
+eval_level: subtopic
+
 # Full CoNLL evaluation configuration
 results_root: /path/to/results_and_weights
 data_dir: /path/to/data

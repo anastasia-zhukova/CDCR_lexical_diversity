@@ -75,6 +75,7 @@ WECENG_EXCLUDE_TOPICS = set(_CFG["weceng_exclude_topics"])
 TRAIN_MODE = _CFG["train_mode"]
 SINGLE_TRAIN_DATASET = _CFG["single_train_dataset"]
 EVAL_THRESHOLD = _CFG["eval_threshold"]
+EVAL_LEVEL = _CFG.get("eval_level", "subtopic")
 
 # Training regime — see core/coref_training_core.py. "ms_loss" (default) or
 # "contrastive". Determines both the trial's model/data wiring below and
@@ -133,6 +134,7 @@ def _train_trial_inner(config, data_dir):
             val_datasets=val_datasets,
             contrastive_sbert_model=config.get("contrastive_sbert_model"),
             contrastive_k_negatives=config.get("contrastive_k_negatives"),
+            eval_level=EVAL_LEVEL,
         )
     )
 

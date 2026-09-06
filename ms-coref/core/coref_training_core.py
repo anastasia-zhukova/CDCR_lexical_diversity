@@ -367,13 +367,18 @@ def load_and_filter_mentions(
 
 
 def build_val_resources(
-    mention_df, tokenizer, max_length, val_batch_size, num_workers, datasets=None
+    mention_df, tokenizer, max_length, val_batch_size, num_workers, datasets=None,
+    eval_level="subtopic",
 ):
     """
     Build per-dataset validation dataloaders, PD tuples, and subtopic IDs.
 
     Args:
         datasets: optional list of dataset names to include. If None, all datasets are used.
+        eval_level: "subtopic" (default) or "topic" — which id column
+            ("subtopic_id" or "topic_id") to group mentions by for
+            clustering. "subtopic_ids"/"n_subtopics" below hold topic ids
+            when eval_level == "topic".
 
     Returns:
         val_resources: dict of dataset_name -> {
@@ -384,6 +389,7 @@ def build_val_resources(
             "n_subtopics": int,
         }
     """
+    group_col = f"{eval_level}_id"
     val_resources = {}
     val_splits = mention_df[mention_df["split"].isin(["val", "validation"])]
     if datasets is not None:
@@ -411,14 +417,14 @@ def build_val_resources(
             else:
                 pd_tuples.append((head, None, None))
 
-        subtopic_ids = ds_df["subtopic_id"].tolist()
+        subtopic_ids = ds_df[group_col].tolist()
 
         val_resources[dataset_name] = {
             "dataloader": dataloader,
             "pd_tuples": pd_tuples,
             "subtopic_ids": subtopic_ids,
             "n_mentions": len(ds_df),
-            "n_subtopics": ds_df["subtopic_id"].nunique(),
+            "n_subtopics": ds_df[group_col].nunique(),
         }
 
     return val_resources
@@ -449,6 +455,7 @@ def build_model_and_data(
     log=None,
     contrastive_sbert_model=None,
     contrastive_k_negatives=None,
+    eval_level="subtopic",
 ):
     """
     Build the tokenizer, training/validation dataloaders, and model — the
@@ -481,6 +488,8 @@ def build_model_and_data(
             (contrastive only; falls back to pair_sampler.SBERT_MODEL).
         contrastive_k_negatives: hard negatives per anchor mention
             (contrastive only; falls back to pair_sampler.K_HARD_NEGATIVES).
+        eval_level: "subtopic" (default) or "topic" — passed through to
+            build_val_resources() to select clustering granularity.
 
     Returns:
         tokenizer, train_dataloader, chain_index, val_resources, model
@@ -545,12 +554,13 @@ def build_model_and_data(
         val_batch_size,
         num_workers,
         datasets=val_datasets,
+        eval_level=eval_level,
     )
     if log:
         for ds_name, res in sorted(val_resources.items()):
             log(
                 f"  Val {ds_name:20s}: {res['n_mentions']:>6,} mentions  "
-                f"{res['n_subtopics']:>4} subtopics"
+                f"{res['n_subtopics']:>4} {eval_level}s"
             )
 
     # --- Model ---

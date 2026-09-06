@@ -100,6 +100,15 @@ TRAIN_MODE = _CFG.get("train_mode", "mix")
 SINGLE_TRAIN_DATASET = _CFG.get("single_train_dataset", "HyperCoref")
 EVAL_THRESHOLD = _CFG.get("eval_threshold", 0.5)
 
+# Clustering granularity for validation: "subtopic" (default, matches the
+# standard CDCR protocol) or "topic" (merges subtopics under a topic into
+# one clustering pass — a larger, harder problem).
+EVAL_LEVEL = _CFG.get("eval_level", "subtopic")
+if EVAL_LEVEL not in ("subtopic", "topic"):
+    raise ValueError(
+        f"config.yaml eval_level must be 'subtopic' or 'topic', got {EVAL_LEVEL!r}"
+    )
+
 # Training regime — see core/coref_training_core.py. "ms_loss" (default) or
 # "contrastive". This is an experiment-shape choice like TRAIN_MODE, so it
 # comes from config.yaml rather than the CLI.
@@ -257,6 +266,7 @@ def train(args):
             log=logger.info if is_main else None,
             contrastive_sbert_model=args.contrastive_sbert_model,
             contrastive_k_negatives=args.contrastive_k_negatives,
+            eval_level=EVAL_LEVEL,
         )
     )
     if is_main:
@@ -266,7 +276,7 @@ def train(args):
             logger.info(
                 f"  Monitor metric: avg pd_LEA F1 across all {len(val_resources)} datasets"
             )
-        logger.info(f"  Clustering: per-subtopic (matching CDCR evaluation protocol)")
+        logger.info(f"  Clustering: per-{EVAL_LEVEL} (matching CDCR evaluation protocol)")
 
     # --- Optimizer and scheduler ---
     optimizer = torch.optim.AdamW(
@@ -318,6 +328,7 @@ def train(args):
             "train_datasets": train_datasets,
             "eval_datasets": sorted(val_resources.keys()),
             "eval_threshold": EVAL_THRESHOLD,
+            "eval_level": EVAL_LEVEL,
             **vars(args),
         }
         with open(run_dir / "params.json", "w") as f:

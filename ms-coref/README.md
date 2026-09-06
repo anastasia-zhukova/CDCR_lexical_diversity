@@ -168,6 +168,7 @@ python eval_checkpoint.py \
 | `--max-length` | `128` | Token sequence length |
 | `--mlp-dim` | `1024` | Must match the value used during training |
 | `--batch-size` | `256` | Inference batch size |
+| `--eval-level` | from `config.yaml` (`eval_level`, default `subtopic`) | Clustering granularity: `subtopic` (matches the standard CDCR protocol) or `topic` (merges all subtopics under a topic into one clustering pass — a larger, harder problem; metrics are not comparable across levels) |
 
 **Output directory structure:**
 ```
@@ -240,6 +241,12 @@ loss_type: ms_loss
 
 # Fixed clustering threshold for cosine-distance evaluation.
 eval_threshold: 0.5
+
+# Clustering granularity for evaluation: "subtopic" (default, matches the
+# standard CDCR protocol) or "topic" (merges subtopics under a topic into
+# one clustering pass). Used by train.py/ray_tune_sweep.py validation and
+# eval_checkpoint.py (overridable there via --eval-level).
+eval_level: subtopic
 
 # Full CoNLL evaluation configuration (used by eval_checkpoint.py / eval_all_checkpoints.py)
 results_root: /path/to/results_and_weights

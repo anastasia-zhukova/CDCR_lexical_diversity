@@ -263,6 +263,8 @@ def run(args):
     model = load_model(args.checkpoint, tokenizer, args.mlp_dim, device)
 
     setting = args.setting
+    group_col = f"{args.eval_level}_id"
+    logger.info(f"Evaluation grouping level: {args.eval_level} (column={group_col})")
 
     final_out_dir = Path(args.output_dir) / setting / args.split
 
@@ -301,7 +303,8 @@ def run(args):
         ds_conll_dir = out_dir / dataset
         entity_type_counts = defaultdict(int)
 
-        for subtopic_id, st_df in ds_df.groupby("subtopic_id", sort=True):
+        # subtopic_id holds topic ids instead when --eval-level topic
+        for subtopic_id, st_df in ds_df.groupby(group_col, sort=True):
             # st_df.index contains positional indices into embs (ds_df was reset_index'd)
             subsets = get_entity_type_subsets(st_df)
             if not subsets:
@@ -405,6 +408,11 @@ def parse_args():
                    help="Datasets to evaluate on (default: all 6)")
     p.add_argument("--exclude-topics", action=argparse.BooleanOptionalAction, default=cfg.get("exclude_topics", True),
                    help="Exclude noisy topics (HyperCoref Sport/Sports, WECEng Awards/Beauty Pageant/Concert/Contest/Festival/Solar Eclipse)")
+    p.add_argument("--eval-level", type=str, default=cfg.get("eval_level", "subtopic"),
+                   choices=["subtopic", "topic"],
+                   help="Clustering granularity: 'subtopic' (default, matches the standard "
+                        "CDCR protocol) or 'topic' (merge all subtopics under a topic into "
+                        "one clustering pass)")
     args, _ = p.parse_known_args()
     return args
 

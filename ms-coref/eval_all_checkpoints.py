@@ -35,6 +35,7 @@ MAX_LENGTH = CONFIG["max_length"]
 MLP_DIM = CONFIG["mlp_dim"]
 ALL_DATASETS = CONFIG["all_datasets"]
 EXCLUDE_TOPICS = CONFIG["exclude_topics"]
+EVAL_LEVEL = CONFIG.get("eval_level", "subtopic")
 
 
 def _find_checkpoint(run_dir: Path):
@@ -99,6 +100,7 @@ def evaluate_runs(runs, data_dir: str, split: str, batch_size: int):
                 batch_size=batch_size,
                 datasets=ALL_DATASETS,
                 exclude_topics=EXCLUDE_TOPICS,
+                eval_level=EVAL_LEVEL,
             )
             _ce.run(args)
 

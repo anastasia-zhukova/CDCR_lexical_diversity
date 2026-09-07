@@ -55,13 +55,21 @@ loss_type: ms_loss
 # Fixed clustering threshold for cosine-distance evaluation.
 eval_threshold: 0.5
 
-# Clustering granularity for evaluation: "subtopic" (default, matches the
+# Clustering granularity for training-time validation (train.py /
+# ray_tune_sweep.py checkpoint selection): "subtopic" (default, matches the
 # standard CDCR protocol — clusters mentions within each subtopic
 # independently) or "topic" (merges all subtopics under a topic into one
 # clustering pass — a larger, harder problem; metrics are not comparable
-# across levels). Used by train.py/ray_tune_sweep.py (validation) and
-# eval_checkpoint.py (final CoNLL eval, overridable via --eval-level).
+# across levels). Not used by eval_checkpoint.py / eval_all_checkpoints.py —
+# the final CoNLL eval always evaluates at both levels in a single pass.
 eval_level: subtopic
+
+# Metric used to select/save the best checkpoint during training-time
+# validation (train.py / ray_tune_sweep.py): "pd_lea_f1" (default), "lea_f1",
+# or "conll_f1". All three are always computed and logged every validation
+# epoch regardless of which one is selected on. train.py can override this
+# per-run via --selection-metric; ray_tune_sweep.py reads it from here only.
+selection_metric: pd_lea_f1
 
 # Full CoNLL evaluation configuration
 results_root: /path/to/results_and_weights

@@ -271,10 +271,10 @@ def train(args):
     )
     if is_main:
         if TRAIN_MODE == "single":
-            logger.info(f"  Monitor metric: pd_LEA F1 on {SINGLE_TRAIN_DATASET} val")
+            logger.info(f"  Monitor metric: {args.selection_metric} on {SINGLE_TRAIN_DATASET} val")
         else:
             logger.info(
-                f"  Monitor metric: avg pd_LEA F1 across all {len(val_resources)} datasets"
+                f"  Monitor metric: avg {args.selection_metric} across all {len(val_resources)} datasets"
             )
         logger.info(f"  Clustering: per-{EVAL_LEVEL} (matching CDCR evaluation protocol)")
 
@@ -336,13 +336,11 @@ def train(args):
         logger.info(f"Run directory: {run_dir}")
         logger.info(f"Params saved to {run_dir / 'params.json'}")
 
-    # Checkpoint selection tracking
+    # Checkpoint selection tracking (metric configured via args.selection_metric;
+    # single mode selects on that dataset's val split, mix/hypercoref_main on
+    # the average across all validation datasets)
     best_epoch = None
-    if TRAIN_MODE == "single":
-        best_pd_lea = 0.0
-    else:
-        # One checkpoint selected by avg pd_LEA F1 across all datasets
-        best_val_f1 = 0.0
+    best_metric_value = 0.0
 
     # Per-epoch metrics accumulated in memory, written fully each epoch
     # (avoids Illegal seek on Databricks volume filesystems which don't support append mode)
@@ -444,12 +442,15 @@ def train(args):
             raw_model = model.module if is_distributed else model
 
             # Compute embeddings once per dataset, cluster per subtopic
-            eval_metrics, avg_pd_lea_f1, avg_conll_f1 = evaluate_validation(
+            eval_metrics, avg_metrics = evaluate_validation(
                 raw_model,
                 val_resources,
                 device,
                 threshold=EVAL_THRESHOLD,
             )
+            avg_pd_lea_f1 = avg_metrics["pd_lea_f1"]
+            avg_conll_f1 = avg_metrics["conll_f1"]
+            avg_lea_f1 = avg_metrics["lea_f1"]
             dataset_names = sorted(val_resources.keys())
 
             if device.type == "cuda":
@@ -466,14 +467,13 @@ def train(args):
                     f"pd_LEA={m['pd_lea_f1']:.4f} (P={m['pd_lea_precision']:.4f} R={m['pd_lea_recall']:.4f})  "
                     f"clusters: gold={m['n_gold_clusters']} pred={m['n_pred_clusters']}"
                 )
-            if TRAIN_MODE == "single":
-                logger.info(
-                    f"  pd_LEA F1 = {avg_pd_lea_f1:.4f}  CoNLL F1 = {avg_conll_f1:.4f}  (threshold={EVAL_THRESHOLD})"
-                )
-            else:
-                logger.info(
-                    f"  Avg pd_LEA F1 = {avg_pd_lea_f1:.4f}  Avg CoNLL F1 = {avg_conll_f1:.4f}  (threshold={EVAL_THRESHOLD})"
-                )
+            prefix = "" if TRAIN_MODE == "single" else "Avg "
+            logger.info(
+                f"  {prefix}pd_LEA F1 = {avg_pd_lea_f1:.4f}  "
+                f"{prefix}LEA F1 = {avg_lea_f1:.4f}  "
+                f"{prefix}CoNLL F1 = {avg_conll_f1:.4f}  "
+                f"(threshold={EVAL_THRESHOLD}, selecting on {args.selection_metric})"
+            )
 
             # Shared checkpoint payload (reused for all saves this epoch)
             ckpt_payload = {
@@ -495,17 +495,17 @@ def train(args):
             if TRAIN_MODE == "single":
                 # Select checkpoints based on SINGLE_TRAIN_DATASET val split only
                 sel_m = eval_metrics[SINGLE_TRAIN_DATASET]
-                sel_pd_lea = sel_m["pd_lea_f1"]
+                sel_value = sel_m[args.selection_metric]
 
-                if sel_pd_lea > best_pd_lea:
-                    best_pd_lea = sel_pd_lea
+                if sel_value > best_metric_value:
+                    best_metric_value = sel_value
                     best_epoch = epoch + 1
                     _safe_torch_save(
                         {
                             **ckpt_payload,
-                            "selection_metric": "pd_lea_f1",
+                            "selection_metric": args.selection_metric,
                             "selection_dataset": SINGLE_TRAIN_DATASET,
-                            "selection_value": sel_pd_lea,
+                            "selection_value": sel_value,
                         },
                         ckpt_dir / "best_model_pd_lea.pt",
                     )
@@ -520,15 +520,20 @@ def train(args):
                         ckpt_dir / "best_model_pd_lea_weights.pt",
                     )
                     logger.info(
-                        f"  New best (pd_LEA): {sel_pd_lea:.4f} on {SINGLE_TRAIN_DATASET} val"
+                        f"  New best ({args.selection_metric}): {sel_value:.4f} on {SINGLE_TRAIN_DATASET} val"
                     )
             else:
-                # mix / hypercoref_main: select by avg pd_LEA across all datasets
-                if avg_pd_lea_f1 > best_val_f1:
-                    best_val_f1 = avg_pd_lea_f1
+                # mix / hypercoref_main: select by avg <selection_metric> across all datasets
+                sel_value = avg_metrics[args.selection_metric]
+                if sel_value > best_metric_value:
+                    best_metric_value = sel_value
                     best_epoch = epoch + 1
                     _safe_torch_save(
-                        {**ckpt_payload, "best_avg_pd_lea_f1": best_val_f1},
+                        {
+                            **ckpt_payload,
+                            "selection_metric": args.selection_metric,
+                            f"best_avg_{args.selection_metric}": best_metric_value,
+                        },
                         ckpt_dir / "best_model.pt",
                     )
                     _safe_torch_save(
@@ -541,7 +546,7 @@ def train(args):
                         },
                         ckpt_dir / "best_model_weights.pt",
                     )
-                    logger.info(f"  New best (avg pd_LEA): {best_val_f1:.4f}")
+                    logger.info(f"  New best (avg {args.selection_metric}): {best_metric_value:.4f}")
 
             # Write metrics log — full overwrite each epoch (volume fs doesn't support append)
             metrics_log_rows.append(
@@ -549,6 +554,7 @@ def train(args):
                     "epoch": epoch + 1,
                     "avg_pd_lea_f1": float(avg_pd_lea_f1),
                     "avg_conll_f1": float(avg_conll_f1),
+                    "avg_lea_f1": float(avg_lea_f1),
                     "per_dataset": {
                         ds: {k: float(v) for k, v in m.items()}
                         for ds, m in eval_metrics.items()
@@ -579,11 +585,12 @@ def train(args):
     if is_main:
         if TRAIN_MODE == "single":
             logger.info(
-                f"Training complete. Best pd_LEA={best_pd_lea:.4f}  (on {SINGLE_TRAIN_DATASET} val, epoch {best_epoch})"
+                f"Training complete. Best {args.selection_metric}={best_metric_value:.4f}  "
+                f"(on {SINGLE_TRAIN_DATASET} val, epoch {best_epoch})"
             )
         else:
             logger.info(
-                f"Training complete. Best avg pd_LEA F1: {best_val_f1:.4f}  (epoch {best_epoch})"
+                f"Training complete. Best avg {args.selection_metric}: {best_metric_value:.4f}  (epoch {best_epoch})"
             )
         logger.info(
             f"Total training time: {total_training_time / 3600:.2f}h ({total_training_time:.0f}s)"
@@ -607,15 +614,15 @@ def train(args):
             "best_epoch": best_epoch,
             **(
                 {
-                    "best_metric_name": "pd_lea_f1",
+                    "best_metric_name": args.selection_metric,
                     "best_metric_dataset": SINGLE_TRAIN_DATASET,
-                    "best_metric_value": round(best_pd_lea, 4),
+                    "best_metric_value": round(best_metric_value, 4),
                 }
                 if TRAIN_MODE == "single"
                 else {
-                    "best_metric_name": "avg_pd_lea_f1",
+                    "best_metric_name": f"avg_{args.selection_metric}",
                     "best_metric_dataset": "avg_across_all_datasets",
-                    "best_metric_value": round(best_val_f1, 4),
+                    "best_metric_value": round(best_metric_value, 4),
                 }
             ),
         }
@@ -779,6 +786,15 @@ def parse_args():
 
     # Checkpointing
     p.add_argument("--save-every", type=int, default=50)
+    p.add_argument(
+        "--selection-metric",
+        type=str,
+        default=cfg.get("selection_metric", "pd_lea_f1"),
+        choices=["pd_lea_f1", "lea_f1", "conll_f1"],
+        help="Metric used to select/save the best checkpoint each validation "
+             "epoch (single mode: on SINGLE_TRAIN_DATASET's val split; "
+             "mix/hypercoref_main: averaged across all validation datasets)",
+    )
 
     # System
     p.add_argument("--num-workers", type=int, default=0)

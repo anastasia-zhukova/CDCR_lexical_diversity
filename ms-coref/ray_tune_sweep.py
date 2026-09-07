@@ -2,8 +2,10 @@
 Ray Tune hyperparameter sweep for MS Loss coreference training.
 
 Runs 8 parallel single-GPU trials on 8×H100 with ASHA early stopping.
-Each trial is a full train() call (single-GPU mode) reporting pd_LEA F1
-at each epoch for pruning.
+Each trial is a full train() call (single-GPU mode) reporting pd_LEA F1,
+LEA F1, and CoNLL F1 at each epoch; ASHA pruning, checkpoint selection,
+and best-trial selection all use whichever of the three is configured via
+config.yaml's `selection_metric` (default pd_lea_f1).
 
 Usage on Databricks:
     1. Install: %pip install "ray[tune]"
@@ -76,6 +78,17 @@ TRAIN_MODE = _CFG["train_mode"]
 SINGLE_TRAIN_DATASET = _CFG["single_train_dataset"]
 EVAL_THRESHOLD = _CFG["eval_threshold"]
 EVAL_LEVEL = _CFG.get("eval_level", "subtopic")
+
+# Metric used for ASHA pruning, checkpoint selection, and best-trial
+# selection. "pd_lea_f1" (default), "lea_f1", or "conll_f1" — all three are
+# always computed and reported per epoch regardless of which one is used
+# for selection (see evaluate_validation() in core/coref_training_core.py).
+SELECTION_METRIC = _CFG.get("selection_metric", "pd_lea_f1")
+if SELECTION_METRIC not in ("pd_lea_f1", "lea_f1", "conll_f1"):
+    raise ValueError(
+        f"config.yaml selection_metric must be one of 'pd_lea_f1', 'lea_f1', "
+        f"'conll_f1', got {SELECTION_METRIC!r}"
+    )
 
 # Training regime — see core/coref_training_core.py. "ms_loss" (default) or
 # "contrastive". Determines both the trial's model/data wiring below and
@@ -206,7 +219,7 @@ def _train_trial_inner(config, data_dir):
         avg_loss = epoch_stats["avg_loss"]
 
         # --- Validation ---
-        eval_metrics, avg_pd_lea_f1, avg_conll_f1 = evaluate_validation(
+        eval_metrics, avg_metrics = evaluate_validation(
             model,
             val_resources,
             device,
@@ -215,18 +228,20 @@ def _train_trial_inner(config, data_dir):
 
         metrics = {
             "epoch": epoch + 1,
-            "pd_lea_f1": float(avg_pd_lea_f1),
-            "conll_f1": float(avg_conll_f1),
+            "pd_lea_f1": float(avg_metrics["pd_lea_f1"]),
+            "conll_f1": float(avg_metrics["conll_f1"]),
+            "lea_f1": float(avg_metrics["lea_f1"]),
             "train_loss": avg_loss,
         }
+        sel_value = avg_metrics[SELECTION_METRIC]
 
         # Only write a checkpoint when validation score improves. Databricks
         # serverless has no local disk (everything goes to slow DBFS/Volumes),
         # so we avoid writing on every epoch and only persist "promising"
-        # checkpoints. CheckpointConfig(checkpoint_score_attribute="pd_lea_f1")
+        # checkpoints. CheckpointConfig(checkpoint_score_attribute=SELECTION_METRIC)
         # then keeps just the best one on disk, deleting superseded ones.
-        if avg_pd_lea_f1 > best_score:
-            best_score = avg_pd_lea_f1
+        if sel_value > best_score:
+            best_score = sel_value
             with tempfile.TemporaryDirectory() as tmp_dir:
                 torch.save(model.state_dict(), os.path.join(tmp_dir, "model.pt"))
                 checkpoint = ray_train.Checkpoint.from_directory(tmp_dir)
@@ -272,7 +287,7 @@ def run_sweep(args):
         }
 
     scheduler = ASHAScheduler(
-        metric="pd_lea_f1",
+        metric=SELECTION_METRIC,
         mode="max",
         max_t=args.num_epochs,
         grace_period=5,
@@ -280,7 +295,7 @@ def run_sweep(args):
     )
 
     reporter = CLIReporter(
-        metric_columns=["epoch", "pd_lea_f1", "conll_f1", "train_loss"],
+        metric_columns=["epoch", "pd_lea_f1", "lea_f1", "conll_f1", "train_loss"],
         max_report_frequency=60,
     )
 
@@ -288,13 +303,14 @@ def run_sweep(args):
     trainable = tune.with_resources(trainable, {"gpu": 1})
 
     # Keep only the single best-scoring checkpoint per trial (train_trial only
-    # ever reports a checkpoint when pd_lea_f1 improves, so writes to the slow
-    # DBFS/Volumes storage path are already rare). checkpoint_score_attribute
-    # ensures Ray keeps the highest-scoring checkpoint rather than just the
-    # most recent one, deleting superseded checkpoints automatically.
+    # ever reports a checkpoint when SELECTION_METRIC improves, so writes to
+    # the slow DBFS/Volumes storage path are already rare).
+    # checkpoint_score_attribute ensures Ray keeps the highest-scoring
+    # checkpoint rather than just the most recent one, deleting superseded
+    # checkpoints automatically.
     checkpoint_config = CheckpointConfig(
         num_to_keep=1,
-        checkpoint_score_attribute="pd_lea_f1",
+        checkpoint_score_attribute=SELECTION_METRIC,
         checkpoint_score_order="max",
     )
 
@@ -326,11 +342,12 @@ def run_sweep(args):
 
     results = tuner.fit()
 
-    best_result = results.get_best_result("pd_lea_f1", mode="max")
+    best_result = results.get_best_result(SELECTION_METRIC, mode="max")
     print("\n" + "=" * 60)
-    print("BEST TRIAL")
+    print(f"BEST TRIAL (selected on {SELECTION_METRIC})")
     print("=" * 60)
     print(f"  pd_LEA F1: {best_result.metrics['pd_lea_f1']:.4f}")
+    print(f"  LEA F1:    {best_result.metrics['lea_f1']:.4f}")
     print(f"  CoNLL F1:  {best_result.metrics['conll_f1']:.4f}")
     print(f"  Config:    {best_result.config}")
     print("=" * 60)

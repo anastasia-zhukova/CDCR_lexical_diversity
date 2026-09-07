@@ -1,22 +1,30 @@
 """
 CoNLL file generation and metric CSV output for cross-checking with the Perl scorer.
 
+Evaluates every checkpoint at both grouping levels ("subtopic" and "topic") in
+a single pass — mention embeddings are computed once per dataset and reused
+for both the subtopic-level and the topic-level clustering round.
+
 Directory structure:
-    {output_dir}/{setting}/{split}/{dataset}/{entity_type}/{subtopic_id}/
+    {output_dir}/{setting}/{split}/{level}/{dataset}/{entity_type}/{group_id}/
         key.conll      — gold clusters (integer chain IDs in brackets)
         response.conll — predicted clusters (integer cluster IDs in brackets)
 
-  - Clustering is performed per subtopic, independently for each entity_type
+  - level is "subtopic" or "topic" — mentions are grouped by subtopic_id or
+    topic_id respectively before clustering
+  - Clustering is performed per group, independently for each entity_type
   - entity_type is one of: "entities" (NAM/NOM/PRO), "events" (all other types), "mix" (all)
-  - "mix" is created for every subtopic with >= 2 non-singleton mentions (all types combined)
+  - "mix" is created for every group with >= 2 non-singleton mentions (all types combined)
   - Singletons are excluded
   - Coref chain names are converted to integers (required by Perl scorer)
-  - Each file contains exactly one document (the subtopic)
+  - Each file contains exactly one document (the group)
 
-Also outputs a CSV with per-subtopic metrics to compare against the Perl scorer output.
+Also outputs, per level, a CSV with per-group metrics to compare against the
+Perl scorer output:
+    {output_dir}/{setting}/{split}/{level}/metrics_per_{level}.csv
 
 CSV columns:
-    setting, dataset, entity_type, subtopic_id,
+    setting, dataset, entity_type, subtopic_id|topic_id,
     muc_p, muc_r, muc_f1,
     b3_p,  b3_r,  b3_f1,
     ceafe_p, ceafe_r, ceafe_f1,
@@ -24,14 +32,21 @@ CSV columns:
     lea_p, lea_r, lea_f1,
     n_mentions, n_gold_clusters, n_pred_clusters
 
+Finally, one {output_dir}/{setting}/{split}/eval_stats.json is written per
+checkpoint with GPU/timing/throughput info covering the whole run (both
+levels share a single embedding pass): gpu_name/count/memory, batch_size,
+n_mentions, embedding/clustering/total time, and mentions_per_sec.
+
 Usage:
     python eval_checkpoint.py --checkpoint /path/to/best_model.pt --split test
 """
 
 import argparse
+import json
 import logging
 import shutil
 import tempfile
+import time
 from collections import defaultdict
 from pathlib import Path
 
@@ -80,6 +95,9 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 _EVENT_IS_ENTITY_DATASETS = frozenset({"NIdent", "NP4E"})
 
 SETTING = "mixed_datasets"
+
+# Both grouping levels are always evaluated in one pass (see module docstring).
+LEVELS = ("subtopic", "topic")
 
 
 # ---------------------------------------------------------------------------
@@ -166,13 +184,13 @@ def get_entity_type_subsets(st_df):
 # ---------------------------------------------------------------------------
 
 def write_conll_subtopic(mentions_df, cluster_id_col, gold_chain_col,
-                         chain_to_int, dataset, entity_type, subtopic_id, out_dir):
+                         chain_to_int, dataset, entity_type, level, group_id, out_dir):
     """
     Write key.conll (gold) and response.conll (predicted) for one
-    (dataset, entity_type, subtopic_id) combination.
+    (level, dataset, entity_type, group_id) combination.
 
     Each file contains exactly one document:
-        #begin document (dataset/entity_type/subtopic_id); part 000
+        #begin document (level/dataset/entity_type/group_id); part 000
         doc_id  mention_id  (integer_gold_chain)   — key
         doc_id  mention_id  (integer_pred_cluster) — response
         #end document
@@ -181,7 +199,7 @@ def write_conll_subtopic(mentions_df, cluster_id_col, gold_chain_col,
     key_path = out_dir / "key.conll"
     sys_path = out_dir / "response.conll"
 
-    doc_id = f"{dataset}/{entity_type}/{subtopic_id}"
+    doc_id = f"{level}/{dataset}/{entity_type}/{group_id}"
     header = f"#begin document ({doc_id}); part 000\n"
 
     with open(key_path, "w") as kf, open(sys_path, "w") as sf:
@@ -223,9 +241,85 @@ def _metrics_from_df(sub_df):
     return pred_clusters, gold_clusters
 
 
+def _cluster_and_score(ds_df, embs, level, dataset, setting, ds_out_dir):
+    """
+    Cluster ds_df at the given grouping level ("subtopic" or "topic"), write
+    CoNLL files under ds_out_dir, and compute per-group metrics.
+
+    ds_df.index must align positionally with embs (i.e. ds_df was
+    reset_index'd before embs was computed).
+
+    Returns:
+        rows: list of metric-row dicts (one per (group, entity_type))
+        entity_type_counts: dict of entity_type -> number of groups written
+    """
+    group_col = f"{level}_id"
+    rows = []
+    entity_type_counts = defaultdict(int)
+
+    for group_id, st_df in ds_df.groupby(group_col, sort=True):
+        subsets = get_entity_type_subsets(st_df)
+        if not subsets:
+            continue
+
+        for entity_type, sub_df in subsets.items():
+            pos_indices = sub_df.index.tolist()
+            cluster_ids = _cluster_subset(embs, pos_indices, EVAL_THRESHOLD)
+
+            sub_df = sub_df.copy()
+            sub_df["_pred_cluster"] = cluster_ids
+
+            # Per-group chain → int mapping (Perl scorer needs integers)
+            unique_chains = sorted(sub_df["coref_chain"].unique())
+            chain_to_int = {c: i + 1 for i, c in enumerate(unique_chains)}
+
+            conll_dir = ds_out_dir / entity_type / str(group_id)
+            write_conll_subtopic(
+                mentions_df=sub_df,
+                cluster_id_col="_pred_cluster",
+                gold_chain_col="coref_chain",
+                chain_to_int=chain_to_int,
+                dataset=dataset,
+                entity_type=entity_type,
+                level=level,
+                group_id=group_id,
+                out_dir=conll_dir,
+            )
+
+            # Metrics for CSV (skip if all gold chains are singletons)
+            pred_clusters, gold_clusters = _metrics_from_df(sub_df)
+            if all(len(c) == 1 for c in gold_clusters.values()):
+                continue
+
+            m = compute_metrics_for_clusters(pred_clusters, gold_clusters)
+            rows.append({
+                "setting": setting,
+                "dataset": dataset,
+                "entity_type": entity_type,
+                f"{level}_id": group_id,
+                "n_mentions": len(sub_df),
+                **{k: round(v, 4) if isinstance(v, float) else v
+                   for k, v in m.items()},
+            })
+            entity_type_counts[entity_type] += 1
+
+    return rows, entity_type_counts
+
+
 def run(args):
+    run_start_time = time.time()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
+
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
+        gpu_name = torch.cuda.get_device_name(device)
+        gpu_count = torch.cuda.device_count()
+        gpu_total_mem_gb = torch.cuda.get_device_properties(device).total_memory / (1024 ** 3)
+    else:
+        gpu_name = None
+        gpu_count = 0
+        gpu_total_mem_gb = None
 
     # Load data
     mention_df = pd.read_parquet(Path(args.data_dir) / "ucdcr_mentions_processed.parquet")
@@ -263,8 +357,6 @@ def run(args):
     model = load_model(args.checkpoint, tokenizer, args.mlp_dim, device)
 
     setting = args.setting
-    group_col = f"{args.eval_level}_id"
-    logger.info(f"Evaluation grouping level: {args.eval_level} (column={group_col})")
 
     final_out_dir = Path(args.output_dir) / setting / args.split
 
@@ -273,6 +365,7 @@ def run(args):
     out_dir = tmp_dir / setting / args.split
     out_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Writing CoNLL files to {tmp_dir} (will zip+copy to {final_out_dir})")
+    logger.info(f"Evaluating at both grouping levels: {LEVELS}")
 
     # Validate entity/event split across all datasets (per-dataset rules applied)
     logger.info("\n--- mention_full_type entity/event split validation ---")
@@ -285,83 +378,47 @@ def run(args):
         logger.info(f"  {ds:20s}  entities={n_entity:,}  events={n_event:,}  null={n_null:,}")
     logger.info("------------------------------------------------------\n")
 
-    all_rows = []
+    all_rows = {level: [] for level in LEVELS}
+    embedding_time_sec = 0.0
+    clustering_time_sec = {level: 0.0 for level in LEVELS}
+    n_mentions_total = 0
 
     for dataset in sorted(split_df["dataset"].unique()):
         # Reset index so positional index aligns with embedding array
         ds_df = split_df[split_df["dataset"] == dataset].reset_index(drop=True)
+        n_mentions_total += len(ds_df)
         logger.info(f"\n{dataset}: {len(ds_df):,} mentions")
 
-        # Compute embeddings once for all mentions in this dataset
+        # Compute embeddings once for all mentions in this dataset — reused
+        # below for both the subtopic-level and topic-level clustering passes.
         dataset_obj = MentionDataset(ds_df, tokenizer, max_length=args.max_length)
         loader = DataLoader(dataset_obj, batch_size=args.batch_size,
                             shuffle=False, num_workers=0)
+        t0 = time.time()
         embs, _ = compute_embeddings(model, loader, device)
+        embedding_time_sec += time.time() - t0
         if device.type == "cuda":
             torch.cuda.empty_cache()
 
-        ds_conll_dir = out_dir / dataset
-        entity_type_counts = defaultdict(int)
+        for level in LEVELS:
+            t0 = time.time()
+            rows, entity_type_counts = _cluster_and_score(
+                ds_df, embs, level, dataset, setting, out_dir / level / dataset,
+            )
+            clustering_time_sec[level] += time.time() - t0
+            all_rows[level].extend(rows)
 
-        # subtopic_id holds topic ids instead when --eval-level topic
-        for subtopic_id, st_df in ds_df.groupby(group_col, sort=True):
-            # st_df.index contains positional indices into embs (ds_df was reset_index'd)
-            subsets = get_entity_type_subsets(st_df)
-            if not subsets:
-                continue
+            for entity_type, n_groups in sorted(entity_type_counts.items()):
+                logger.info(f"  [{level}] {entity_type:8s}  {n_groups} groups written")
+            logger.info(f"  CoNLL files → {out_dir / level / dataset}")
 
-            for entity_type, sub_df in subsets.items():
-                pos_indices = sub_df.index.tolist()
-                cluster_ids = _cluster_subset(embs, pos_indices, EVAL_THRESHOLD)
+    # Save per-level metrics CSVs to tmp
+    for level in LEVELS:
+        csv_path = out_dir / level / f"metrics_per_{level}.csv"
+        pd.DataFrame(all_rows[level]).to_csv(csv_path, index=False, float_format="%.4f")
+        logger.info(f"Metrics CSV saved for level={level} ({len(all_rows[level])} rows)")
 
-                sub_df = sub_df.copy()
-                sub_df["_pred_cluster"] = cluster_ids
-
-                # Per-subtopic chain → int mapping (Perl scorer needs integers)
-                unique_chains = sorted(sub_df["coref_chain"].unique())
-                chain_to_int = {c: i + 1 for i, c in enumerate(unique_chains)}
-
-                # Write CoNLL files: {out_dir}/{dataset}/{entity_type}/{subtopic_id}/
-                conll_dir = ds_conll_dir / entity_type / str(subtopic_id)
-                write_conll_subtopic(
-                    mentions_df=sub_df,
-                    cluster_id_col="_pred_cluster",
-                    gold_chain_col="coref_chain",
-                    chain_to_int=chain_to_int,
-                    dataset=dataset,
-                    entity_type=entity_type,
-                    subtopic_id=subtopic_id,
-                    out_dir=conll_dir,
-                )
-
-                # Metrics for CSV (skip if all gold chains are singletons)
-                pred_clusters, gold_clusters = _metrics_from_df(sub_df)
-                if all(len(c) == 1 for c in gold_clusters.values()):
-                    continue
-
-                m = compute_metrics_for_clusters(pred_clusters, gold_clusters)
-                all_rows.append({
-                    "setting": setting,
-                    "dataset": dataset,
-                    "entity_type": entity_type,
-                    "subtopic_id": subtopic_id,
-                    "n_mentions": len(sub_df),
-                    **{k: round(v, 4) if isinstance(v, float) else v
-                       for k, v in m.items()},
-                })
-                entity_type_counts[entity_type] += 1
-
-        # Dataset-level summary: log subtopic counts per entity_type
-        for entity_type, n_subtopics in sorted(entity_type_counts.items()):
-            logger.info(f"  {entity_type:8s}  {n_subtopics} subtopics written")
-        logger.info(f"  CoNLL files → {ds_conll_dir}")
-
-    # Save CSV to tmp
-    csv_path = out_dir / "metrics_per_subtopic.csv"
-    pd.DataFrame(all_rows).to_csv(csv_path, index=False, float_format="%.4f")
-    logger.info(f"\nMetrics CSV saved ({len(all_rows)} rows)")
-
-    # Zip and copy to final output directory
+    # Zip and copy the whole (both-levels) tree to final output directory
     logger.info("Zipping CoNLL output...")
     zip_path = tmp_dir / "conll_output"
     shutil.make_archive(str(zip_path), "zip", tmp_dir, f"{setting}/{args.split}")
@@ -373,13 +430,50 @@ def run(args):
     shutil.copy2(str(zip_file), str(final_zip))
     logger.info(f"  Copied to {final_zip}")
 
-    # Also copy the CSV directly (small file, useful without unzipping)
-    final_csv = final_out_dir / "metrics_per_subtopic.csv"
-    shutil.copy2(str(csv_path), str(final_csv))
-    logger.info(f"  CSV copied to {final_csv}")
+    # Also copy each level's CSV directly (small files, useful without unzipping)
+    for level in LEVELS:
+        final_csv = final_out_dir / level / f"metrics_per_{level}.csv"
+        final_csv.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(out_dir / level / f"metrics_per_{level}.csv"), str(final_csv))
+        logger.info(f"  CSV copied to {final_csv}")
 
     # Cleanup tmp
     shutil.rmtree(tmp_dir)
+
+    # --- Per-checkpoint run stats: GPU, batch size, timing, mention throughput ---
+    total_time_sec = time.time() - run_start_time
+    gpu_peak_mem_gb = (
+        round(torch.cuda.max_memory_allocated(device) / (1024 ** 3), 2)
+        if device.type == "cuda" else None
+    )
+    eval_stats = {
+        "setting": setting,
+        "split": args.split,
+        "checkpoint": str(args.checkpoint),
+        "device": str(device),
+        "gpu_name": gpu_name,
+        "gpu_count": gpu_count,
+        "gpu_total_memory_gb": round(gpu_total_mem_gb, 2) if gpu_total_mem_gb else None,
+        "gpu_peak_memory_allocated_gb": gpu_peak_mem_gb,
+        "batch_size": args.batch_size,
+        "n_mentions": n_mentions_total,
+        "n_datasets": int(split_df["dataset"].nunique()),
+        "embedding_time_sec": round(embedding_time_sec, 2),
+        "clustering_time_sec_subtopic": round(clustering_time_sec["subtopic"], 2),
+        "clustering_time_sec_topic": round(clustering_time_sec["topic"], 2),
+        "total_time_sec": round(total_time_sec, 2),
+        "mentions_per_sec": (
+            round(n_mentions_total / embedding_time_sec, 2) if embedding_time_sec > 0 else None
+        ),
+        "sec_per_mention": (
+            round(embedding_time_sec / n_mentions_total, 6) if n_mentions_total > 0 else None
+        ),
+    }
+    stats_path = final_out_dir / "eval_stats.json"
+    with open(stats_path, "w") as f:
+        json.dump(eval_stats, f, indent=2)
+    logger.info(f"  Eval stats written to {stats_path}")
+
     logger.info("Done.")
 
 
@@ -408,11 +502,6 @@ def parse_args():
                    help="Datasets to evaluate on (default: all 6)")
     p.add_argument("--exclude-topics", action=argparse.BooleanOptionalAction, default=cfg.get("exclude_topics", True),
                    help="Exclude noisy topics (HyperCoref Sport/Sports, WECEng Awards/Beauty Pageant/Concert/Contest/Festival/Solar Eclipse)")
-    p.add_argument("--eval-level", type=str, default=cfg.get("eval_level", "subtopic"),
-                   choices=["subtopic", "topic"],
-                   help="Clustering granularity: 'subtopic' (default, matches the standard "
-                        "CDCR protocol) or 'topic' (merge all subtopics under a topic into "
-                        "one clustering pass)")
     args, _ = p.parse_known_args()
     return args
 

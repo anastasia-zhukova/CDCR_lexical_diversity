@@ -29,7 +29,7 @@ Contents:
     dataloaders + model for either training regime
   - build_cosine_schedule(): linear warmup + cosine decay LR schedule
   - run_train_epoch(training_mode, ...): the training step for either regime
-  - evaluate_validation(): per-dataset + averaged pd_LEA/CoNLL evaluation
+  - evaluate_validation(): per-dataset + averaged pd_LEA/CoNLL/LEA evaluation
 """
 
 import math
@@ -905,9 +905,13 @@ def evaluate_validation(model, val_resources, device, threshold):
 
     Returns:
         eval_metrics: dict of dataset_name -> metrics dict (from
-            evaluate_per_subtopic), e.g. pd_lea_f1, conll_f1, etc.
-        avg_pd_lea_f1: float, mean pd_lea_f1 across datasets.
-        avg_conll_f1: float, mean conll_f1 across datasets.
+            evaluate_per_subtopic), e.g. pd_lea_f1, conll_f1, lea_f1, etc.
+        avg_metrics: dict of {"pd_lea_f1", "conll_f1", "lea_f1"} -> float,
+            each averaged across datasets. Callers pick whichever metric
+            they use for checkpoint selection/reporting (e.g. train.py's
+            and ray_tune_sweep.py's selection_metric) out of this dict —
+            all three are always computed here since none of them cost
+            anything extra once per-dataset clustering is done.
     """
     model.eval()
     dataset_names = sorted(val_resources.keys())
@@ -925,11 +929,11 @@ def evaluate_validation(model, val_resources, device, threshold):
             )
             eval_metrics[ds_name] = metrics
 
-    avg_pd_lea_f1 = float(
-        np.mean([eval_metrics[ds]["pd_lea_f1"] for ds in dataset_names])
-    )
-    avg_conll_f1 = float(
-        np.mean([eval_metrics[ds]["conll_f1"] for ds in dataset_names])
-    )
+    avg_metrics = {
+        metric_name: float(
+            np.mean([eval_metrics[ds][metric_name] for ds in dataset_names])
+        )
+        for metric_name in ("pd_lea_f1", "conll_f1", "lea_f1")
+    }
 
-    return eval_metrics, avg_pd_lea_f1, avg_conll_f1
+    return eval_metrics, avg_metrics

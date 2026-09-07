@@ -80,7 +80,7 @@ def load_test_metrics(entity_type: str = "mix") -> tuple[pd.DataFrame, pd.DataFr
     agg_frames = []
     detail_frames = []
     for csv_path in sorted(glob.glob(
-        os.path.join(BASE_DIR, "*", "conll_output", "*", "test", "metrics_per_subtopic.csv")
+        os.path.join(BASE_DIR, "*", "conll_output", "*", "test", "subtopic", "metrics_per_subtopic.csv")
     )):
         parts = csv_path.replace(BASE_DIR + "/", "").split("/")
         run_name = parts[0]

@@ -6,6 +6,10 @@ Creates tables with models as rows and datasets as columns for:
   1. CoNLL F1
   2. LEA F1
 
+Each is generated once per grouping level — eval_checkpoint.py writes both a
+subtopic-level and a topic-level metrics CSV per run, so this produces four
+files total: summary_{conll_f1,lea_f1}_{subtopic,topic}.csv.
+
 Usage:
     python results_summary.py
 """
@@ -40,11 +44,15 @@ DATASET_ORDER = [
 ]
 
 
-def _build_excluded_subtopics() -> dict[str, set[str]]:
-    """Return subtopic_ids to exclude for HyperCoref and WECEng.
+def _build_excluded_groups(level: str) -> dict[str, set[str]]:
+    """Return subtopic_ids/topic_ids to exclude for HyperCoref and WECEng.
 
-    Reads the mentions parquet to map topic -> subtopic_id for the test split.
+    Reads the mentions parquet to map topic -> {level}_id for the test split.
+
+    Args:
+        level: "subtopic" or "topic" — which id column to exclude on.
     """
+    group_col = f"{level}_id"
     parquet_path = os.path.join(DATA_DIR, "ucdcr_mentions_processed.parquet")
     mention_df = pd.read_parquet(parquet_path)
     test_df = mention_df[mention_df["split"] == "test"]
@@ -56,31 +64,37 @@ def _build_excluded_subtopics() -> dict[str, set[str]]:
     ]:
         ds_test = test_df[test_df["dataset"] == dataset]
         mask = ds_test["topic"].isin(excl_topics)
-        excluded[dataset] = set(ds_test.loc[mask, "subtopic_id"].unique())
+        excluded[dataset] = set(ds_test.loc[mask, group_col].unique())
 
     return excluded
 
 
-def load_test_metrics(entity_type: str = "mix") -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Load per-subtopic test metrics for all runs.
+def load_test_metrics(
+    level: str = "subtopic", entity_type: str = "mix"
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load per-group (subtopic or topic) test metrics for all runs.
 
     Args:
+        level: "subtopic" (default) or "topic" — which grouping level's
+            metrics CSV to read (eval_checkpoint.py writes both:
+            {run}/conll_output/{setting}/test/{level}/metrics_per_{level}.csv).
         entity_type: Filter to this entity_type ('entities', 'events', 'mix').
 
     Returns:
-        (dataset_agg, subtopic_detail):
+        (dataset_agg, group_detail):
           - dataset_agg: DataFrame [run, dataset, conll_f1, lea_f1]
             with per-dataset macro means (including *Excl variants).
-          - subtopic_detail: DataFrame [run, dataset, subtopic_id,
-            conll_f1, lea_f1, n_mentions] with per-subtopic rows
+          - group_detail: DataFrame [run, dataset, {level}_id,
+            conll_f1, lea_f1, n_mentions] with per-group rows
             (including *Excl virtual dataset labels).
     """
-    excluded_subtopics = _build_excluded_subtopics()
+    group_col = f"{level}_id"
+    excluded_groups = _build_excluded_groups(level)
 
     agg_frames = []
     detail_frames = []
     for csv_path in sorted(glob.glob(
-        os.path.join(BASE_DIR, "*", "conll_output", "*", "test", "subtopic", "metrics_per_subtopic.csv")
+        os.path.join(BASE_DIR, "*", "conll_output", "*", "test", level, f"metrics_per_{level}.csv")
     )):
         parts = csv_path.replace(BASE_DIR + "/", "").split("/")
         run_name = parts[0]
@@ -90,11 +104,11 @@ def load_test_metrics(entity_type: str = "mix") -> tuple[pd.DataFrame, pd.DataFr
         if df.empty:
             continue
 
-        # Keep per-subtopic detail
-        detail = df[["dataset", "subtopic_id", "conll_f1", "lea_f1", "n_mentions"]].copy()
+        # Keep per-group detail
+        detail = df[["dataset", group_col, "conll_f1", "lea_f1", "n_mentions"]].copy()
         detail["run"] = run_name
 
-        # Standard per-dataset aggregation (macro over subtopics)
+        # Standard per-dataset aggregation (macro over groups)
         agg = (
             df.groupby("dataset")[["conll_f1", "lea_f1"]]
             .mean()
@@ -110,7 +124,7 @@ def load_test_metrics(entity_type: str = "mix") -> tuple[pd.DataFrame, pd.DataFr
             ds_rows = df[df["dataset"] == dataset]
             if ds_rows.empty:
                 continue
-            ds_excl = ds_rows[~ds_rows["subtopic_id"].isin(excluded_subtopics[dataset])]
+            ds_excl = ds_rows[~ds_rows[group_col].isin(excluded_groups[dataset])]
             if ds_excl.empty:
                 continue
             excl_agg = ds_excl[["conll_f1", "lea_f1"]].mean().to_frame().T
@@ -119,7 +133,7 @@ def load_test_metrics(entity_type: str = "mix") -> tuple[pd.DataFrame, pd.DataFr
             agg = pd.concat([agg, excl_agg], ignore_index=True)
 
             # Detail rows for *Excl
-            excl_detail = ds_excl[["dataset", "subtopic_id", "conll_f1", "lea_f1", "n_mentions"]].copy()
+            excl_detail = ds_excl[["dataset", group_col, "conll_f1", "lea_f1", "n_mentions"]].copy()
             excl_detail["dataset"] = excl_label
             excl_detail["run"] = run_name
             detail = pd.concat([detail, excl_detail], ignore_index=True)
@@ -160,10 +174,15 @@ def _load_run_metadata() -> dict[str, str]:
 
 def make_pivot(
     dataset_agg: pd.DataFrame,
-    subtopic_detail: pd.DataFrame,
+    group_detail: pd.DataFrame,
     metric: str,
 ) -> pd.DataFrame:
-    """Pivot data into a model×dataset table with macro/micro summaries."""
+    """Pivot data into a model×dataset table with macro/micro summaries.
+
+    group_detail holds per-subtopic or per-topic rows depending on which
+    level load_test_metrics() was called with — this function itself is
+    level-agnostic, it only needs "dataset"/"n_mentions"/"run"/metric.
+    """
     pivot = dataset_agg.pivot_table(index="run", columns="dataset", values=metric)
 
     # Apply short names
@@ -176,15 +195,15 @@ def make_pivot(
     pivot["Macro"] = pivot[ucdcr_cols].mean(axis=1)
     pivot["Macro_excl"] = pivot[excl_cols].mean(axis=1)
 
-    # Micro: mention-weighted mean across subtopics
+    # Micro: mention-weighted mean across groups
     short_to_orig = {}
-    for orig in subtopic_detail["run"].unique():
+    for orig in group_detail["run"].unique():
         short_to_orig[SHORT_NAMES.get(orig, orig)] = orig
 
     micro_vals = {}
     micro_excl_vals = {}
     for short_name, orig_name in short_to_orig.items():
-        run_detail = subtopic_detail[subtopic_detail["run"] == orig_name]
+        run_detail = group_detail[group_detail["run"] == orig_name]
 
         subset = run_detail[run_detail["dataset"].isin(_UCDCR_DATASETS)]
         if not subset.empty:
@@ -255,23 +274,28 @@ def highlight_best(pivot: pd.DataFrame) -> str:
 
 
 def main():
-    dataset_agg, subtopic_detail = load_test_metrics(entity_type="mix")
+    for level in ("subtopic", "topic"):
+        print(f"\n{'#' * 70}")
+        print(f"# Level: {level}")
+        print(f"{'#' * 70}\n")
 
-    # --- Table 1: CoNLL F1 ---
-    pivot_conll = make_pivot(dataset_agg, subtopic_detail, "conll_f1")
-    out_conll = os.path.join(OUTPUT_DIR, "summary_conll_f1.csv")
-    pivot_conll.to_csv(out_conll, float_format="%.4f")
-    print(f"Wrote {out_conll}")
-    print(highlight_best(pivot_conll))
-    print()
+        dataset_agg, group_detail = load_test_metrics(level=level, entity_type="mix")
 
-    # --- Table 2: LEA F1 ---
-    pivot_lea = make_pivot(dataset_agg, subtopic_detail, "lea_f1")
-    out_lea = os.path.join(OUTPUT_DIR, "summary_lea_f1.csv")
-    pivot_lea.to_csv(out_lea, float_format="%.4f")
-    print(f"Wrote {out_lea}")
-    print(highlight_best(pivot_lea))
-    print()
+        # --- Table 1: CoNLL F1 ---
+        pivot_conll = make_pivot(dataset_agg, group_detail, "conll_f1")
+        out_conll = os.path.join(OUTPUT_DIR, f"summary_conll_f1_{level}.csv")
+        pivot_conll.to_csv(out_conll, float_format="%.4f")
+        print(f"Wrote {out_conll}")
+        print(highlight_best(pivot_conll))
+        print()
+
+        # --- Table 2: LEA F1 ---
+        pivot_lea = make_pivot(dataset_agg, group_detail, "lea_f1")
+        out_lea = os.path.join(OUTPUT_DIR, f"summary_lea_f1_{level}.csv")
+        pivot_lea.to_csv(out_lea, float_format="%.4f")
+        print(f"Wrote {out_lea}")
+        print(highlight_best(pivot_lea))
+        print()
 
 
 if __name__ == "__main__":

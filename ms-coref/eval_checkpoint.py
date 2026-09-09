@@ -382,8 +382,11 @@ def run(args):
     embedding_time_sec = 0.0
     clustering_time_sec = {level: 0.0 for level in LEVELS}
     n_mentions_total = 0
+    per_dataset_stats = {}
 
     for dataset in sorted(split_df["dataset"].unique()):
+        dataset_start_time = time.time()
+
         # Reset index so positional index aligns with embedding array
         ds_df = split_df[split_df["dataset"] == dataset].reset_index(drop=True)
         n_mentions_total += len(ds_df)
@@ -396,21 +399,33 @@ def run(args):
                             shuffle=False, num_workers=0)
         t0 = time.time()
         embs, _ = compute_embeddings(model, loader, device)
-        embedding_time_sec += time.time() - t0
+        ds_embedding_time_sec = time.time() - t0
+        embedding_time_sec += ds_embedding_time_sec
         if device.type == "cuda":
             torch.cuda.empty_cache()
 
+        ds_clustering_time_sec = {}
         for level in LEVELS:
             t0 = time.time()
             rows, entity_type_counts = _cluster_and_score(
                 ds_df, embs, level, dataset, setting, out_dir / level / dataset,
             )
-            clustering_time_sec[level] += time.time() - t0
+            level_time = time.time() - t0
+            clustering_time_sec[level] += level_time
+            ds_clustering_time_sec[level] = level_time
             all_rows[level].extend(rows)
 
             for entity_type, n_groups in sorted(entity_type_counts.items()):
                 logger.info(f"  [{level}] {entity_type:8s}  {n_groups} groups written")
             logger.info(f"  CoNLL files → {out_dir / level / dataset}")
+
+        per_dataset_stats[dataset] = {
+            "n_mentions": len(ds_df),
+            "embedding_time_sec": round(ds_embedding_time_sec, 2),
+            "clustering_time_sec_subtopic": round(ds_clustering_time_sec["subtopic"], 2),
+            "clustering_time_sec_topic": round(ds_clustering_time_sec["topic"], 2),
+            "total_time_sec": round(time.time() - dataset_start_time, 2),
+        }
 
     # Save per-level metrics CSVs to tmp
     for level in LEVELS:
@@ -473,6 +488,12 @@ def run(args):
     with open(stats_path, "w") as f:
         json.dump(eval_stats, f, indent=2)
     logger.info(f"  Eval stats written to {stats_path}")
+
+    # --- Per-dataset timing breakdown (no GPU fields) ---
+    per_dataset_stats_path = final_out_dir / "eval_stats_per_dataset.json"
+    with open(per_dataset_stats_path, "w") as f:
+        json.dump(per_dataset_stats, f, indent=2)
+    logger.info(f"  Per-dataset eval stats written to {per_dataset_stats_path}")
 
     logger.info("Done.")
 

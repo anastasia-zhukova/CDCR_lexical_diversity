@@ -121,7 +121,7 @@ def phrasing_diversity_calc(mentions) -> float:
     """
     Calculate phrasing diversity for a coreference chain.
 
-    Replicates CL_COREF/coval/eval/evaluator.py::phrasing_diversity_calc.
+    Replicates old-approaches/cl-coref-legacy/coval/eval/evaluator.py::phrasing_diversity_calc.
 
     Args:
         mentions: list of (mention_head, mention_wordset, mention_wo_stopwords) tuples.

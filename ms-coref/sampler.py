@@ -588,7 +588,7 @@ def custom_tokenize_with_special_tokens(
     3. Allocate remaining space to doc_context
     4. Combine: <s> doc_tokens </s> </s> mention_tokens </s>
 
-    Adapted from cl-coref/src/cl_coref/pipelines/03_training/nodes.py
+    Adapted from old-approaches/cl-coref-kedro/src/cl_coref/pipelines/03_training/nodes.py
     """
     special_tokens_count = 4  # <s> ... </s> </s> ... </s>
     max_tokens_for_text = max_length - special_tokens_count

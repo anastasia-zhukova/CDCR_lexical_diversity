@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 # Add CL_COREF to path
-CL_COREF_PATH = Path(__file__).parents[5] / "CL_COREF"
+CL_COREF_PATH = Path(__file__).parents[5] / "cl-coref-legacy"
 sys.path.insert(0, str(CL_COREF_PATH))
 
 from model import CustomContrastiveLoss, create_optimizer

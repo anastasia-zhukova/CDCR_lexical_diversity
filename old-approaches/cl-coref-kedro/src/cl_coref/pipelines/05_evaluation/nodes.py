@@ -128,7 +128,7 @@ def evaluate_single_configuration(
     logger.info(f"Evaluating: {training_config} / {dataset_name} / {mode}")
 
     # Import coval directly for evaluation
-    CL_COREF_PATH = Path(__file__).parents[5] / "CL_COREF"
+    CL_COREF_PATH = Path(__file__).parents[5] / "cl-coref-legacy"
     sys.path.insert(0, str(CL_COREF_PATH))
 
     from coval.conll import reader

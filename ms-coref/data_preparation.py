@@ -134,7 +134,7 @@ def build_mention_representation(row):
 def compute_pd_components(row):
     """
     Compute phrasing diversity components for a mention, replicating
-    the logic from CL_COREF/dataset.py Mention.__init__.
+    the logic from old-approaches/cl-coref-legacy/dataset.py Mention.__init__.
 
     From tokens_text, removes stopwords and punctuation (keeping the head word
     even if it's a stopword). Produces:

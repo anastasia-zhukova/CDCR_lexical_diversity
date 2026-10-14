@@ -108,17 +108,18 @@ ms-coref/
 
 ## Legacy folders
 
-These folders hold earlier approaches and tooling. They are **no longer
-maintained** and may not run against the current data or dependencies. Use
-them for reference only.
+Earlier approaches and tooling live under [`old-approaches/`](old-approaches/).
+They are **no longer maintained** and may not run against the current data,
+dependencies, or folder layout (relative paths were not updated after the
+move). Use them for reference only.
 
 | Folder | What it was |
 |---|---|
-| [`MTL/`](MTL/) | Multi-task cross-encoder combining CDCR with paraphrase identification (pairwise scoring). |
-| [`PI/`](PI/) | Paraphrase-identification data used by the MTL approach. |
-| [`CL_COREF/`](CL_COREF/) | Original siamese contrastive-learning CDCR model, plus the `coval` scorer. The `contrastive` regime in `ms-coref` is a port of this approach, and `ms-coref`'s PD calculation mirrors its scorer. |
-| [`cl-coref/`](cl-coref/) | Kedro pipelines for data exploration, mention preparation and pair selection that fed `CL_COREF`. |
-| [`DAPT/`](DAPT/) | Domain-adaptive pretraining experiments (cluster job scripts). |
+| [`old-approaches/MTL/`](old-approaches/MTL/) | Multi-task cross-encoder combining CDCR with paraphrase identification (pairwise scoring). |
+| [`old-approaches/PI/`](old-approaches/PI/) | Paraphrase-identification data used by the MTL approach. |
+| [`old-approaches/cl-coref-legacy/`](old-approaches/cl-coref-legacy/) | Original siamese contrastive-learning CDCR model (script-based), plus the `coval` scorer. The `contrastive` regime in `ms-coref` ports its loss, and `ms-coref`'s PD calculation mirrors its scorer. |
+| [`old-approaches/cl-coref-kedro/`](old-approaches/cl-coref-kedro/) | Kedro rewrite of the contrastive-learning pipeline on the multi-dataset setup (data exploration → mention preparation → pair selection → training → inference → evaluation). Imports the model, loss and metrics from `cl-coref-legacy/`, so the two must stay side by side. |
+| [`old-approaches/DAPT/`](old-approaches/DAPT/) | Domain-adaptive pretraining experiments (cluster job scripts). |
 
 ## License
 

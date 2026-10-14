@@ -110,7 +110,7 @@ def run_inference_with_model(
     # Import required modules from CL_COREF
     import sys
     from pathlib import Path
-    CL_COREF_PATH = Path(__file__).parents[5] / "CL_COREF"
+    CL_COREF_PATH = Path(__file__).parents[5] / "cl-coref-legacy"
     sys.path.insert(0, str(CL_COREF_PATH))
     from model import create_siamese_model, create_tokenizer
 

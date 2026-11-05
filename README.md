@@ -1,4 +1,4 @@
-# Cross-Document Coreference Resolution and Lexical Diversity
+# Navigating Real-World Challenges of Cross-Document Coreference Resolution using Contrastive and Transfer Learning
 
 Cross-document coreference resolution (CDCR) groups mentions that refer to the
 same entity or event across documents. This repository studies how well CDCR
